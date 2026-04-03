@@ -10,7 +10,7 @@
 
 | | |
 |---|---|
-| Version | 2.0.3 |
+| Version | 2.0.4 |
 | Plugin ID | `data-guard` |
 | Engine | Pure Node.js — zero external dependencies |
 | Platform | macOS · Linux · Windows |
@@ -42,9 +42,9 @@ Your Machine
 | Layer | Trigger | What it covers |
 |-------|---------|----------------|
 | L1: HTTP Proxy | Every outbound API call | All message text sent to the model |
-| L2: Tool Hook | `read`, `read_file`, `read_many_files` | CSV / XLSX / XLS file contents |
+| L2: Tool Hook | `read`, `read_file`, `read_many_files` | CSV / XLSX / XLS / DOCX / PPTX / PDF file contents |
 
-The two layers are complementary. L2 handles structured file data with column-level precision; L1 catches anything that slips through as free text in the conversation.
+The two layers are complementary. L2 handles file content before it reaches the model — structured files (CSV/XLSX/XLS) use column-level precision, while document files (DOCX/PPTX/PDF) use full-text regex desensitization. L1 catches anything that slips through as free text in the conversation.
 
 ---
 
@@ -99,14 +99,14 @@ cd openclaw-plugins-data-guard
 npm pack
 
 # 2. Install into OpenClaw
-openclaw plugins install data-guard-2.0.3.tgz
+openclaw plugins install data-guard-2.0.4.tgz
 
 # 3. Restart the gateway
 openclaw gateway restart
 
 # 4. Verify
 openclaw plugins list
-# data-guard   loaded   2.0.3
+# data-guard   loaded   2.0.4
 ```
 
 ---
@@ -214,6 +214,9 @@ data-guard/
                 ├── CsvFormat.js
                 ├── XlsxFormat.js
                 ├── XlsFormat.js
+                ├── DocxFormat.js     # DOCX / DOTX (ZIP + XML, zero deps)
+                ├── PptxFormat.js     # PPTX / POTX (ZIP + XML, zero deps)
+                ├── PdfFormat.js      # PDF (content stream extraction, zero deps)
                 └── index.js
 ```
 
@@ -223,7 +226,7 @@ data-guard/
 
 **Port 47291 already in use**
 
-This should no longer happen in v2.0.3 — the plugin automatically kills any stale proxy process on startup. If it does occur:
+This should no longer happen in v2.0.4 — the plugin automatically kills any stale proxy process on startup. If it does occur:
 
 ```bash
 lsof -i :47291        # find the process
@@ -236,7 +239,7 @@ openclaw gateway restart
 ```bash
 openclaw plugins list           # check status
 openclaw plugins uninstall data-guard --force
-openclaw plugins install data-guard-2.0.3.tgz
+openclaw plugins install data-guard-2.0.4.tgz
 openclaw gateway restart
 ```
 
