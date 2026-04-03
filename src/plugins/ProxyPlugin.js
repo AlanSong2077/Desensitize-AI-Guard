@@ -10,7 +10,7 @@
  * 这样可以避免代理崩溃影响主进程，也便于独立重启。
  */
 
-import { spawn }                          from 'child_process'
+import { spawn, execFileSync }            from 'child_process'
 import { existsSync, readFileSync,
          unlinkSync }                     from 'fs'
 import { join }                           from 'path'
@@ -50,6 +50,34 @@ function killStalePid(pidFile, logger) {
     try { unlinkSync(pidFile) } catch {}
   } catch (e) {
     logger?.warn(`[data-guard-proxy] 读取 PID 文件失败: ${e.message}`)
+  }
+}
+
+/**
+ * 兜底：通过 lsof 按端口查找并 kill 残留进程
+ * 处理 PID 文件缺失或记录失效时端口仍被占用的情况
+ * @param {number} port
+ * @param {object} logger
+ */
+function killPortProcess(port, logger) {
+  try {
+    // lsof -ti :PORT 输出占用该端口的所有 PID，每行一个
+    const out = execFileSync('lsof', ['-ti', `:${port}`], { encoding: 'utf8', timeout: 3000 }).trim()
+    if (!out) return
+    for (const pidStr of out.split('\n')) {
+      const pid = parseInt(pidStr.trim(), 10)
+      if (!pid || isNaN(pid) || pid === process.pid) continue
+      try {
+        process.kill(pid, 'SIGTERM')
+        logger?.info(`[data-guard-proxy] 按端口清理残留进程 PID=${pid} port=${port}`)
+      } catch (e) {
+        if (e.code !== 'ESRCH') logger?.warn(`[data-guard-proxy] 按端口 kill 失败 PID=${pid}: ${e.message}`)
+      }
+    }
+    // 等待端口释放
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 300)
+  } catch (e) {
+    // lsof 不存在或端口未被占用，忽略
   }
 }
 
@@ -99,6 +127,8 @@ export class ProxyPlugin extends Plugin {
       start: () => {
         // 先清理可能残留的旧代理进程，避免端口占用
         killStalePid(pidFile, logger)
+        // 兜底：PID 文件失效时，直接按端口清理残留进程
+        killPortProcess(port, logger)
 
         // 改写 openclaw.json 中的 baseUrl
         syncBaseUrls(this.openclawJsonPath, port, logger)

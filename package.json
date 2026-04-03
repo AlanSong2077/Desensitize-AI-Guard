@@ -1,6 +1,6 @@
 {
   "name": "data-guard",
-  "version": "2.0.4",
+  "version": "2.0.6",
   "description": "Data Guard — 双层数据脱敏插件（HTTP 代理层 + 工具调用层）。分层架构：输入层/输出层/代理层/插件层/核心层，支持扩展新文件格式。纯 Node.js 引擎（零外部依赖），30+ 类脱敏 + CSV/XLSX/XLS 列名精准脱敏。",
   "type": "module",
   "main": "index.js",
@@ -24,6 +24,7 @@
   "files": [
     "index.js",
     "src/",
+    "test/",
     "openclaw.plugin.json"
   ],
   "engines": {
@@ -52,14 +53,14 @@
     ]
   },
   "scripts": {
-    "test":         "node test/index.js",
-    "test:core":    "node test/index.js --only core",
+    "test": "node test/index.js",
+    "test:core": "node test/index.js --only core",
     "test:formats": "node test/index.js --only formats",
-    "test:input":   "node test/index.js --only input",
-    "test:output":  "node test/index.js --only output",
-    "test:proxy":   "node test/index.js --only proxy",
+    "test:input": "node test/index.js --only input",
+    "test:output": "node test/index.js --only output",
+    "test:proxy": "node test/index.js --only proxy",
     "test:plugins": "node test/index.js --only plugins",
-    "test:bail":    "node test/index.js --bail",
-    "pack":         "npm pack"
+    "test:bail": "node test/index.js --bail",
+    "pack": "npm pack"
   }
 }

@@ -8,7 +8,8 @@
 import { FileFormat } from './FileFormat.js'
 
 export class CsvFormat extends FileFormat {
-  get extensions() { return ['.csv'] }
+  get extensions()      { return ['.csv'] }
+  get outputExtension() { return '.csv'  }
 
   /**
    * 解析 CSV 文件内容

@@ -9,7 +9,8 @@
 import { FileFormat } from './FileFormat.js'
 
 export class XlsFormat extends FileFormat {
-  get extensions() { return ['.xls'] }
+  get extensions()      { return ['.xls'] }
+  get outputExtension() { return '.csv' }
 
   /**
    * 解析 XLS 文件

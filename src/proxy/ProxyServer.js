@@ -22,7 +22,7 @@ import https from 'https'
 import { existsSync, readFileSync, writeFileSync, unlinkSync, appendFileSync, mkdirSync } from 'fs'
 import { homedir } from 'os'
 import { join }    from 'path'
-import { desensitize, mightContainSensitiveData } from '../core/desensitize.js'
+import { desensitize } from '../core/desensitize.js'
 
 // ── 配置 ──────────────────────────────────────────────────────────────────────
 
@@ -96,7 +96,9 @@ function resolveTarget(reqUrl) {
  */
 function desensitizeBody(obj, counter) {
   if (typeof obj === 'string') {
-    if (!mightContainSensitiveData(obj)) return obj
+    // 不做 mightContainSensitiveData 前置过滤：
+    // 单个字段值脱离上下文时快速检测容易漏判（如孤立的出生日期、座机号等）。
+    // desensitize() 内部本身有快速路径，无命中时直接返回原值，性能影响可忽略。
     const { result, stats } = desensitize(obj)
     const total = Object.values(stats).reduce((a, b) => a + b, 0)
     if (total > 0) {

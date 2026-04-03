@@ -10,7 +10,8 @@ import { inflateRawSync } from 'zlib'
 import { FileFormat } from './FileFormat.js'
 
 export class XlsxFormat extends FileFormat {
-  get extensions() { return ['.xlsx', '.xlsm'] }
+  get extensions()      { return ['.xlsx', '.xlsm'] }
+  get outputExtension() { return '.csv' }
 
   /**
    * 解析 XLSX 文件

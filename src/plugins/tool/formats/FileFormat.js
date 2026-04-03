@@ -45,6 +45,14 @@ export class FileFormat {
   }
 
   /**
+   * 此格式 serialize() 输出的文件扩展名（决定临时文件的扩展名）
+   * 子类应覆盖此属性以匹配实际输出格式。
+   * 默认为 .txt（纯文本）。
+   * @returns {string}
+   */
+  get outputExtension() { return '.txt' }
+
+  /**
    * 将文件内容解析为统一的 ParsedFile 结构
    *
    * @param {Buffer} buffer  - 文件原始字节

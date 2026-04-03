@@ -16,7 +16,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { extname, basename }                                   from 'path'
 import { createHash }                                          from 'crypto'
 import { registry }                                            from '../plugins/tool/formats/index.js'
-import { makeCtx, hit, findColRule, mightContainSensitiveData, desensitize } from '../core/desensitize.js'
+import { makeCtx, hit, findColRule, desensitize } from '../core/desensitize.js'
 
 // ── 临时目录管理 ──────────────────────────────────────────────────────────────
 
@@ -30,14 +30,15 @@ export function ensureTempDir(tempDir) {
 
 /**
  * 生成临时文件路径（基于原始路径 hash，避免冲突）
- * 保留原始扩展名，确保 AI 读取时能正确识别文件格式。
+ * 扩展名由 format.outputExtension 决定，确保与 serialize() 输出内容一致。
  * @param {string} originalPath
  * @param {string} tempDir
+ * @param {FileFormat} [format]  - 若提供则用 format.outputExtension，否则保留原始扩展名
  * @returns {string}
  */
-export function makeTempPath(originalPath, tempDir) {
+export function makeTempPath(originalPath, tempDir, format) {
   const hash = createHash('sha256').update(originalPath + Date.now() + Math.random()).digest('hex').slice(0, 8)
-  const ext  = extname(originalPath).toLowerCase() || '.csv'
+  const ext  = format?.outputExtension ?? (extname(originalPath).toLowerCase() || '.csv')
   return `${tempDir}/dg_${hash}${ext}`
 }
 
@@ -84,16 +85,17 @@ export function desensitizeSheets(parsed) {
         }
 
         // 无列名规则：正则兜底脱敏
-        if (mightContainSensitiveData(val)) {
-          const { result, stats } = desensitize(val)
-          const hits = Object.values(stats).reduce((a, b) => a + b, 0)
-          if (hits > 0) {
-            totalHits += hits
-            for (const [k, v] of Object.entries(stats)) {
-              byType[k] = (byType[k] ?? 0) + v
-            }
-            return result
+        // 注意：不做 mightContainSensitiveData 前置过滤——单元格值脱离上下文时
+        // 快速检测容易漏判（如单独的出生日期"19901201"、座机"010-12345678"），
+        // 直接调用 desensitize()，内部有快速路径，无命中时直接返回原值。
+        const { result, stats } = desensitize(val)
+        const hits = Object.values(stats).reduce((a, b) => a + b, 0)
+        if (hits > 0) {
+          totalHits += hits
+          for (const [k, v] of Object.entries(stats)) {
+            byType[k] = (byType[k] ?? 0) + v
           }
+          return result
         }
         return cell
       })
@@ -153,7 +155,7 @@ export function readAndDesensitize(filePath, tempDir) {
 
     // 序列化并写入临时文件
     ensureTempDir(tempDir)
-    const outPath = makeTempPath(filePath, tempDir)
+    const outPath = makeTempPath(filePath, tempDir, format)
     const outBuf  = format.serialize(mergedParsed)
     writeFileSync(outPath, outBuf)
 

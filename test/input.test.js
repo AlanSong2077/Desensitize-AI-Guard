@@ -95,9 +95,16 @@ suite('input › makeTempPath()', () => {
     const p = makeTempPath('/some/file.csv', TEST_TEMP_DIR)
     assert.includes(p, 'dg_')
   })
-  test('生成路径扩展名为 .csv', () => {
-    const p = makeTempPath('/some/file.xlsx', TEST_TEMP_DIR)
-    assert.equal(extname(p), '.csv')
+  test('不传 format 时扩展名与原始文件一致', () => {
+    assert.equal(extname(makeTempPath('/some/file.csv',  TEST_TEMP_DIR)), '.csv')
+    assert.equal(extname(makeTempPath('/some/file.xlsx', TEST_TEMP_DIR)), '.xlsx')
+    assert.equal(extname(makeTempPath('/some/file.pdf',  TEST_TEMP_DIR)), '.pdf')
+  })
+  test('传 format 时扩展名由 outputExtension 决定', () => {
+    assert.equal(extname(makeTempPath('/some/file.xlsx', TEST_TEMP_DIR, { outputExtension: '.csv'  })), '.csv')
+    assert.equal(extname(makeTempPath('/some/file.xls',  TEST_TEMP_DIR, { outputExtension: '.csv'  })), '.csv')
+    assert.equal(extname(makeTempPath('/some/file.docx', TEST_TEMP_DIR, { outputExtension: '.txt'  })), '.txt')
+    assert.equal(extname(makeTempPath('/some/file.pptx', TEST_TEMP_DIR, { outputExtension: '.pptx' })), '.pptx')
   })
   test('两次调用生成不同路径（含时间戳）', () => {
     const p1 = makeTempPath('/some/file.csv', TEST_TEMP_DIR)

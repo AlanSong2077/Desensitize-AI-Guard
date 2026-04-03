@@ -90,7 +90,7 @@ export class FileDesensitizePlugin extends ToolPlugin {
         }
 
         const typesSummary = Object.entries(stats.byType).map(([k, v]) => `${k}×${v}`).join(', ')
-        this.log(logger, `${basename(filePath)}: desensitized ${stats.total} item(s) [${typesSummary}]`)
+        this.log(logger, `${basename(filePath)} 已脱敏 ${stats.total} 处 [${typesSummary}]`)
       }
     }
 

@@ -29,7 +29,8 @@ import { inflateRawSync, deflateRawSync } from 'zlib'
 import { FileFormat } from './FileFormat.js'
 
 export class PptxFormat extends FileFormat {
-  get extensions() { return ['.pptx', '.potx'] }
+  get extensions()      { return ['.pptx', '.potx'] }
+  get outputExtension() { return '.pptx' }
 
   /** @param {Buffer} buffer @returns {ParsedFile} */
   parse(buffer) {

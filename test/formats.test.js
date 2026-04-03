@@ -77,8 +77,8 @@ suite('formats › FileFormatRegistry', () => {
     assert.notNullish(registry.find('.XLSX'))
   })
   test('find() 未知格式返回 null', () => {
-    assert.nullish(registry.find('.pdf'))
-    assert.nullish(registry.find('.docx'))
+    assert.nullish(registry.find('.mp3'))
+    assert.nullish(registry.find('.zip'))
   })
   test('register() 支持链式调用', () => {
     const r = new FileFormatRegistry()
