@@ -57,12 +57,12 @@ export class ToolPlugin extends Plugin {
     const tools = this.supportedTools
 
     api.on('before_tool_call', (event) => {
-      const { toolName, params } = event
+      const { toolName, params, context } = event
 
       // 只处理声明的工具
       if (!tools.includes(toolName)) return
 
-      return this.handleToolCall(toolName, params, config, logger)
+      return this.handleToolCall(toolName, params, config, logger, context)
     })
 
     this.log(logger, `registered, intercepting tools: [${tools.join(', ')}]`)

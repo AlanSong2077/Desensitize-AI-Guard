@@ -24,6 +24,7 @@ import { ProxyServer } from './ProxyServer.js'
 
 const port           = parseInt(process.env.DATA_GUARD_PORT ?? '47291', 10)
 const blockOnFailure = (process.env.DATA_GUARD_BLOCK_ON_FAILURE ?? 'true') !== 'false'
+const skipPrefix     = process.env.DATA_GUARD_SKIP_PREFIX ?? '[skip-guard]'
 
 // ── 路径解析 ──────────────────────────────────────────────────────────────────
 
@@ -48,7 +49,7 @@ try { writeFileSync(pidFile, String(process.pid), 'utf8') } catch {}
 
 // ── 启动代理 ──────────────────────────────────────────────────────────────────
 
-const server = new ProxyServer({ port, blockOnFailure, logFile })
+const server = new ProxyServer({ port, blockOnFailure, skipPrefix, logFile })
 
 server.start().catch(err => {
   process.stderr.write(`[proxy-process] 启动失败: ${err.message}\n`)

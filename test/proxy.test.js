@@ -15,6 +15,13 @@ import { ProxyServer } from '../src/proxy/ProxyServer.js'
 import {
   isProxyUrl, isLocalProxy, encodeProxyUrl, syncBaseUrls,
 } from '../src/proxy/UrlRewriter.js'
+import {
+  OPENAI_REQUEST_SKIP,
+  ANTHROPIC_REQUEST_SKIP_SYSTEM,
+  REQUEST_SKIP_PROMPT,
+  OPENAI_REQUEST_SKIP_PARTS,
+  OPENAI_REQUEST_CUSTOM_SKIP,
+} from './fixtures/index.js'
 
 // ── UrlRewriter ───────────────────────────────────────────────────────────────
 
@@ -239,6 +246,134 @@ suite('proxy › ProxyServer 请求脱敏', () => {
   })
 
   test('teardown：关闭服务', async () => {
+    await proxyServer.stop()
+    await new Promise(r => mockUpstream.close(r))
+  })
+})
+
+// ── ProxyServer skip-guard ────────────────────────────────────────────────────
+
+suite('proxy › ProxyServer skip-guard', () => {
+  let mockUpstream, mockPort, receivedBodies
+  let proxyServer, proxyPort
+
+  function sendToProxy(body, upstreamUrl, serverPort) {
+    const encoded = Buffer.from(upstreamUrl).toString('base64')
+    const path    = `/proxy/${encoded}/chat/completions`
+    const bodyStr = JSON.stringify(body)
+
+    return new Promise((resolve, reject) => {
+      const req = http.request({
+        hostname: '127.0.0.1',
+        port:     serverPort,
+        path,
+        method:   'POST',
+        headers:  { 'content-type': 'application/json', 'content-length': Buffer.byteLength(bodyStr) },
+      }, res => {
+        const chunks = []
+        res.on('data', c => chunks.push(c))
+        res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString() }))
+      })
+      req.on('error', reject)
+      req.write(bodyStr)
+      req.end()
+    })
+  }
+
+  test('setup：启动 mock 上游 + 代理（带 skip-guard）', async () => {
+    receivedBodies = []
+    mockPort = 47601
+
+    mockUpstream = http.createServer((req, res) => {
+      const chunks = []
+      req.on('data', c => chunks.push(c))
+      req.on('end', () => {
+        try { receivedBodies.push(JSON.parse(Buffer.concat(chunks).toString())) } catch {}
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ ok: true }))
+      })
+    })
+    await new Promise(r => mockUpstream.listen(mockPort, '127.0.0.1', r))
+
+    proxyPort   = 47602
+    proxyServer = new ProxyServer({ port: proxyPort, blockOnFailure: true, skipPrefix: '[skip-guard]' })
+    await proxyServer.start()
+  })
+
+  test('user message 带 [skip-guard] 前缀：敏感信息原样透传', async () => {
+    const upstreamUrl = `http://127.0.0.1:${mockPort}`
+    await sendToProxy(OPENAI_REQUEST_SKIP, upstreamUrl, proxyPort)
+
+    const received = receivedBodies[receivedBodies.length - 1]
+    const content  = received.messages[1].content
+    assert.includes(content, '13812345678', '手机号应原样保留（skip-guard 跳过脱敏）')
+    assert.includes(content, '[skip-guard]', 'skip-guard 前缀应保留在消息中')
+  })
+
+  test('system 字段带 [skip-guard] 前缀：整个请求原样透传', async () => {
+    const upstreamUrl = `http://127.0.0.1:${mockPort}`
+    await sendToProxy(ANTHROPIC_REQUEST_SKIP_SYSTEM, upstreamUrl, proxyPort)
+
+    const received = receivedBodies[receivedBodies.length - 1]
+    // user message 中的敏感信息应原样保留
+    const content = received.messages[0].content
+    assert.includes(content, 'user@example.com', '邮箱应原样保留（system 带 skip-guard）')
+  })
+
+  test('旧版 prompt 字段带 [skip-guard] 前缀：原样透传', async () => {
+    const upstreamUrl = `http://127.0.0.1:${mockPort}`
+    await sendToProxy(REQUEST_SKIP_PROMPT, upstreamUrl, proxyPort)
+
+    const received = receivedBodies[receivedBodies.length - 1]
+    assert.includes(received.prompt, '13812345678', 'prompt 中手机号应原样保留')
+  })
+
+  test('content parts 数组中 text part 带 [skip-guard] 前缀：原样透传', async () => {
+    const upstreamUrl = `http://127.0.0.1:${mockPort}`
+    await sendToProxy(OPENAI_REQUEST_SKIP_PARTS, upstreamUrl, proxyPort)
+
+    const received = receivedBodies[receivedBodies.length - 1]
+    const textPart = received.messages[0].content.find(p => p.type === 'text')
+    assert.includes(textPart.text, '13812345678', 'content parts 中手机号应原样保留')
+  })
+
+  test('不匹配的前缀不触发 skip：敏感信息正常脱敏', async () => {
+    const upstreamUrl = `http://127.0.0.1:${mockPort}`
+    await sendToProxy(OPENAI_REQUEST_CUSTOM_SKIP, upstreamUrl, proxyPort)
+
+    const received = receivedBodies[receivedBodies.length - 1]
+    const content  = received.messages[0].content
+    assert.notIncludes(content, '13812345678', '[no-guard] 不是 skip 前缀，手机号应被脱敏')
+  })
+
+  test('自定义 skipPrefix 生效', async () => {
+    // 启动一个使用自定义前缀的代理
+    const customPort   = 47603
+    const customServer = new ProxyServer({ port: customPort, skipPrefix: '[no-guard]' })
+    await customServer.start()
+
+    await sendToProxy(OPENAI_REQUEST_CUSTOM_SKIP, `http://127.0.0.1:${mockPort}`, customPort)
+    const received = receivedBodies[receivedBodies.length - 1]
+    const content  = received.messages[0].content
+    assert.includes(content, '13812345678', '自定义前缀 [no-guard] 应触发 skip，手机号原样保留')
+
+    await customServer.stop()
+  })
+
+  test('skipPrefix 为空字符串时不跳过脱敏', async () => {
+    const noSkipPort   = 47604
+    const noSkipServer = new ProxyServer({ port: noSkipPort, skipPrefix: '' })
+    await noSkipServer.start()
+
+    await sendToProxy(OPENAI_REQUEST_SKIP, `http://127.0.0.1:${mockPort}`, noSkipPort)
+    const received = receivedBodies[receivedBodies.length - 1]
+    const content  = received.messages[1].content
+    assert.notIncludes(content, '13812345678', 'skipPrefix 为空时应正常脱敏')
+
+    await noSkipServer.stop()
+  })
+
+  test('teardown：关闭 skip-guard 测试服务', async () => {
     await proxyServer.stop()
     await new Promise(r => mockUpstream.close(r))
   })

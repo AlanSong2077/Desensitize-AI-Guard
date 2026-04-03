@@ -318,3 +318,144 @@ suite('plugins › FileDesensitizePlugin', () => {
     assert.ok(hasDesensitizeLog, '应有脱敏成功的日志')
   })
 })
+
+// ── FileDesensitizePlugin skip-guard ─────────────────────────────────────────
+
+suite('plugins › FileDesensitizePlugin skip-guard', () => {
+  const sensitiveFile = join(TEST_TEMP_DIR, 'skip_sensitive.csv')
+  writeFileSync(sensitiveFile, CSV_WITH_SENSITIVE_COLS, 'utf8')
+
+  // 扩展 mock API，支持传入 context
+  function createMockApiWithContext() {
+    const api = createMockApi()
+    api.triggerToolCallWithContext = function(toolName, params, context) {
+      const fn = api._hooks['before_tool_call']
+      if (!fn) return undefined
+      return fn({ toolName, params, context })
+    }
+    return api
+  }
+
+  test('params.explanation 带 skip-guard 前缀：跳过文件脱敏', () => {
+    const api = createMockApiWithContext()
+    const p   = new FileDesensitizePlugin(TEST_TEMP_DIR)
+    p.register(api, { skipPrefix: '[skip-guard]' }, api.logger)
+
+    const result = api.triggerToolCallWithContext(
+      'read_file',
+      { file_path: sensitiveFile, explanation: '[skip-guard] 需要读取原始数据' },
+      undefined
+    )
+    assert.equal(result, undefined, 'explanation 带 skip-guard 时应跳过脱敏，返回 undefined')
+  })
+
+  test('context.explanation 带 skip-guard 前缀：跳过文件脱敏', () => {
+    const api = createMockApiWithContext()
+    const p   = new FileDesensitizePlugin(TEST_TEMP_DIR)
+    p.register(api, { skipPrefix: '[skip-guard]' }, api.logger)
+
+    const result = api.triggerToolCallWithContext(
+      'read_file',
+      { file_path: sensitiveFile },
+      { explanation: '[skip-guard] 原始数据分析' }
+    )
+    assert.equal(result, undefined, 'context.explanation 带 skip-guard 时应跳过脱敏')
+  })
+
+  test('context.messages 最近 user 消息带 skip-guard 前缀：跳过文件脱敏', () => {
+    const api = createMockApiWithContext()
+    const p   = new FileDesensitizePlugin(TEST_TEMP_DIR)
+    p.register(api, { skipPrefix: '[skip-guard]' }, api.logger)
+
+    const result = api.triggerToolCallWithContext(
+      'read_file',
+      { file_path: sensitiveFile },
+      {
+        messages: [
+          { role: 'system', content: '你是助手' },
+          { role: 'user',   content: '[skip-guard] 请读取这个文件的原始内容' },
+        ],
+      }
+    )
+    assert.equal(result, undefined, 'context.messages 中 user 消息带 skip-guard 时应跳过脱敏')
+  })
+
+  test('context.messages content parts 带 skip-guard 前缀：跳过文件脱敏', () => {
+    const api = createMockApiWithContext()
+    const p   = new FileDesensitizePlugin(TEST_TEMP_DIR)
+    p.register(api, { skipPrefix: '[skip-guard]' }, api.logger)
+
+    const result = api.triggerToolCallWithContext(
+      'read_file',
+      { file_path: sensitiveFile },
+      {
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: '[skip-guard] 读取原始文件' },
+              { type: 'image_url', image_url: { url: 'data:image/png;base64,abc' } },
+            ],
+          },
+        ],
+      }
+    )
+    assert.equal(result, undefined, 'content parts 中 text 带 skip-guard 时应跳过脱敏')
+  })
+
+  test('无 skip-guard 前缀时正常脱敏', () => {
+    const api = createMockApiWithContext()
+    const p   = new FileDesensitizePlugin(TEST_TEMP_DIR)
+    p.register(api, { skipPrefix: '[skip-guard]' }, api.logger)
+
+    const result = api.triggerToolCallWithContext(
+      'read_file',
+      { file_path: sensitiveFile },
+      { messages: [{ role: 'user', content: '请读取这个文件' }] }
+    )
+    assert.notNullish(result, '无 skip-guard 时应正常脱敏，返回修改后的 params')
+    assert.notEqual(result.params.file_path, sensitiveFile, '路径应被替换为临时文件')
+  })
+
+  test('自定义 skipPrefix 生效', () => {
+    const api = createMockApiWithContext()
+    const p   = new FileDesensitizePlugin(TEST_TEMP_DIR)
+    p.register(api, { skipPrefix: '[raw]' }, api.logger)
+
+    const result = api.triggerToolCallWithContext(
+      'read_file',
+      { file_path: sensitiveFile, explanation: '[raw] 读取原始数据' },
+      undefined
+    )
+    assert.equal(result, undefined, '自定义前缀 [raw] 应触发 skip')
+  })
+
+  test('skipPrefix 为空时不跳过脱敏', () => {
+    const api = createMockApiWithContext()
+    const p   = new FileDesensitizePlugin(TEST_TEMP_DIR)
+    p.register(api, { skipPrefix: '' }, api.logger)
+
+    const result = api.triggerToolCallWithContext(
+      'read_file',
+      { file_path: sensitiveFile, explanation: '[skip-guard] 读取原始数据' },
+      undefined
+    )
+    // skipPrefix 为空时不跳过，应正常脱敏
+    assert.notNullish(result, 'skipPrefix 为空时不应跳过脱敏')
+  })
+
+  test('skip-guard 日志记录正确', () => {
+    const api = createMockApiWithContext()
+    const p   = new FileDesensitizePlugin(TEST_TEMP_DIR)
+    p.register(api, { skipPrefix: '[skip-guard]' }, api.logger)
+
+    api.triggerToolCallWithContext(
+      'read_file',
+      { file_path: sensitiveFile, explanation: '[skip-guard] 读取原始数据' },
+      undefined
+    )
+    const infoLogs = api._logs.filter(l => l.level === 'info')
+    const hasSkipLog = infoLogs.some(l => l.msg.includes('skip-guard'))
+    assert.ok(hasSkipLog, '应有 skip-guard 跳过的日志')
+  })
+})

@@ -515,9 +515,10 @@ function applyRegexRules(text, ctx) {
     /(?<!\d)(?:\+?86[\s\u3000\-]?)?1[3-9]\d[\s\u3000\-\.\/\\]?\d{4}[\s\u3000\-\.\/\\]?\d{4}(?!\d)/g,
     m => { hit(ctx, '手机号'); return maskPhone(m) }
   )
-  // 座机：0XX-XXXXXXXX 或 0XXX-XXXXXXX，允许空格/换行
+  // 座机：0XX-XXXXXXXX 或 0XXX-XXXXXXX
+  // 要求区号与号码之间必须有明确分隔符（- 或空格），避免误伤小数/邮编+数字
   text = text.replace(
-    /(?<!\d)0\d{2,3}[\s\u3000\-\.\/\\]?\d{7,8}(?!\d)/g,
+    /(?<!\d)0\d{2,3}[\-\s]\d{7,8}(?!\d)/g,
     m => { hit(ctx, '座机号码'); return maskPhone(m) }
   )
 
@@ -561,31 +562,39 @@ function applyRegexRules(text, ctx) {
   text = text.replace(/(?<!\d)[1-6]\d{6}\([\d]\)(?!\d)/g,
     m => { hit(ctx, '澳门身份证'); return maskIdCard(m, 'macau') })
 
-  // 护照
-  text = text.replace(/(?<![A-Za-z])[EeGgDdSsPp]\d{8}(?!\d)/g,
-    m => { hit(ctx, '护照号'); return m[0] + '****' + m.slice(-3) })
+  // 护照（需要明确上下文关键词，避免误伤产品型号/编号等）
+  text = text.replace(
+    /(?:护照号?|passport(?:_?no)?)[：:\s]*([EeGgDdSsPp]\d{8})/gi,
+    (m, v) => { hit(ctx, '护照号'); return m.replace(v, v[0] + '****' + v.slice(-3)) }
+  )
 
-  // 港澳台通行证
-  text = text.replace(/(?<![A-Za-z])[HhMm]\d{10}(?!\d)/g,
-    m => { hit(ctx, '港澳台通行证'); return m.slice(0, 2) + '****' + m.slice(-4) })
+  // 港澳台通行证（需要明确上下文关键词）
+  text = text.replace(
+    /(?:港澳通行证|台湾通行证|回乡证|通行证号?)[：:\s]*([HhMm]\d{10})/gi,
+    (m, v) => { hit(ctx, '港澳台通行证'); return m.replace(v, v.slice(0, 2) + '****' + v.slice(-4)) }
+  )
 
-  // 驾驶证
-  text = text.replace(/(?<!\d)\d{12}(?!\d)/g, m => {
-    if (/^[1-9]\d{10}\d$/.test(m)) { hit(ctx, '驾驶证号'); return maskLicenseNo(m) }
-    return m
-  })
+  // 驾驶证（需要明确上下文关键词，避免误伤12位时间戳/金额等）
+  text = text.replace(
+    /(?:驾驶证号?|驾照号?|driver_?license|dl_?no)[：:\s]*([1-9]\d{11})/gi,
+    (m, v) => { hit(ctx, '驾驶证号'); return m.replace(v, maskLicenseNo(v)) }
+  )
 
-  // 社保卡
-  text = text.replace(/(?<!\d)([1-9]\d{16,17}|[1-9]\d{10}\d{6})(?<!\d)/g,
-    m => { hit(ctx, '社保卡号'); return maskSocialSecurity(m) })
+  // 社保卡（需要明确上下文关键词，避免误伤长数字串）
+  text = text.replace(
+    /(?:社保卡?号?|社会保障号?|social_?security)[：:\s]*([1-9]\d{16,17})/gi,
+    (m, v) => { hit(ctx, '社保卡号'); return m.replace(v, maskSocialSecurity(v)) }
+  )
 
-  // 公积金
+  // 公积金（保留分组格式匹配，特征足够明确）
   text = text.replace(/(?<!\d)\d{10}(?:[\- ]\d{4,6})+(?!\d)/g,
     m => { hit(ctx, '公积金账号'); return maskHousingFund(m) })
 
-  // 统一社会信用代码
-  text = text.replace(/(?<![0-9A-Za-z])[0-9A-HJ-NP-RT-Y]{18}(?![0-9A-Za-z])/g,
-    m => { hit(ctx, '统一社会信用代码'); return maskTax(m) })
+  // 统一社会信用代码（需要明确上下文关键词，避免误伤哈希值/UUID/版本号等）
+  text = text.replace(
+    /(?:统一社会信用代码|信用代码|营业执照号?|tax_?id|credit_?code)[：:\s]*([0-9A-HJ-NP-RT-Y]{18})/gi,
+    (m, v) => { hit(ctx, '统一社会信用代码'); return m.replace(v, maskTax(v)) }
+  )
 
   // ── 银行卡（宽松匹配：支持空格/连字符分组，Luhn 校验）──────────────────
   // 常见格式：6222 0000 0000 0000 / 6222-0000-0000-0000
@@ -616,10 +625,14 @@ function applyRegexRules(text, ctx) {
   })
 
   // IPv4 / IPv6
-  text = text.replace(/\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/g, m => {
-    const p = m.split('.').map(Number)
-    if (p.every(o => o <= 255)) { hit(ctx, 'IP地址'); return p[0] + '.' + p[1] + '.*.*' }
-    return m
+  // 收紧：排除版本号格式（如 1.2.3.4 / 0.9.1.0 这类四段都 <= 9 的小数字）
+  // 真实 IP 通常至少有一段 >= 10（私网：10.x/172.x/192.x，回环：127.x）
+  text = text.replace(/\b(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\b/g, (m, a, b, c, d) => {
+    const parts = [+a, +b, +c, +d]
+    if (!parts.every(o => o <= 255)) return m
+    // 四段都 <= 9 视为版本号，不脱敏
+    if (parts.every(o => o <= 9)) return m
+    hit(ctx, 'IP地址'); return parts[0] + '.' + parts[1] + '.*.*'
   })
   text = text.replace(/(?<![:\w])(?:[0-9a-fA-F]{1,4}:){3,7}[0-9a-fA-F]{1,4}(?![:\w])/g,
     m => { hit(ctx, 'IPv6地址'); return '****:****:****:****' })
@@ -727,14 +740,16 @@ function applyRegexRules(text, ctx) {
     (m, v) => { hit(ctx, '地址'); const sep = m.match(/[：:]/)[0]; return m.slice(0, m.indexOf(sep) + 1) + maskAddress(v.trim()) }
   )
 
-  // 出生日期
+  // 出生日期（仅在明确上下文关键词下触发，避免误伤普通日期/时间戳/文件名）
+  // 带分隔符格式：出生日期：1990-01-01 / 生日：1990/01/01 / 出生年月：1990.01
   text = text.replace(
-    /(?:出生日期|生日|出生年月)[：:]\s*(\d{4}[年\-/.]\d{1,2}[月\-/.]\d{1,2}[日]?)/g,
-    (_, k) => { hit(ctx, '出生日期'); return k + '：****-**-**' }
+    /(?:出生日期|生日|出生年月|出生年月日|dob|birthdate|birthday)[：:\s]*((?:19|20)\d{2}[年\-\/.](0?[1-9]|1[0-2])[月\-\/.](0?[1-9]|[12]\d|3[01])[日]?)/gi,
+    (m, v) => { hit(ctx, '出生日期'); return m.replace(v, '****-**-**') }
   )
+  // 紧凑格式：出生日期：19901201（仅在明确关键词后）
   text = text.replace(
-    /(?<![\d_\-])(?:19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])(?![\d_\-./\\])/g,
-    m => { hit(ctx, '出生日期'); return maskBirthDate(m) }
+    /(?:出生日期|生日|出生年月|dob)[：:\s]*((?:19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01]))/gi,
+    (m, v) => { hit(ctx, '出生日期'); return m.replace(v, '****-**-**') }
   )
 
   // 年龄
@@ -810,14 +825,11 @@ function applyRegexRules(text, ctx) {
   text = text.replace(/(?<![A-Za-z0-9])[A-Z]{2,6}-\d{4,8}(?:[-\.]\d{2,8})?(?![A-Za-z0-9])/g,
     m => { hit(ctx, '合同编号'); return maskContract(m) })
 
-  // 订单 / 流水号
-  text = text.replace(/(?<!\d)\d{14,25}(?!\d)/g, m => {
-    if (!/^1[3-9]\d{13}$/.test(m) &&
-        !/^\d{6}(?:19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\d{3}[\dXx]?$/.test(m)) {
-      hit(ctx, '订单/流水号'); return maskOrder(m)
-    }
-    return m
-  })
+  // 订单 / 流水号（需要明确上下文关键词，避免误伤时间戳/文件大小/版本号等）
+  text = text.replace(
+    /(?:订单号?|流水号?|交易号?|单号|order_?(?:id|no)|transaction_?(?:id|no)|trade_?(?:id|no))[：:\s]*([0-9A-Za-z\-]{8,32})/gi,
+    (m, v) => { hit(ctx, '订单/流水号'); return m.replace(v, maskOrder(v)) }
+  )
 
   // 发票号码（需有发票关键词上下文，避免误伤文件名日期戳等纯数字）
   text = text.replace(
@@ -828,7 +840,7 @@ function applyRegexRules(text, ctx) {
   // 工号
   text = text.replace(
     /(?:工号|员工号|员工编号)[：:]\s*([A-Za-z0-9\-]{4,20})/gi,
-    (_, k, v) => { hit(ctx, '工号'); return k + '：' + maskEmployeeId(v) }
+    (m, v) => { hit(ctx, '工号'); return m.replace(v, maskEmployeeId(v)) }
   )
 
   return text
@@ -839,21 +851,26 @@ function applyRegexRules(text, ctx) {
 const QUICK_PATTERNS = [
   // 手机号（含分隔符变体）
   /(?<!\d)(?:\+?86[\s\-]?)?1[3-9]\d[\s\-\.\/]?\d{4}[\s\-\.\/]?\d{4}(?!\d)/,
+  // 身份证（18位，含生日段）
   /\d{6}(?:19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\d{3}[\dXx]/,
+  // 邮箱
   /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/,
+  // 银行卡（16-19位纯数字 或 分组格式）
   /(?<!\d)\d{16,19}(?!\d)/,
-  // 银行卡分组格式
   /\d{4}[\s\-]\d{4}[\s\-]\d{4}[\s\-]\d{4}/,
-  /[EeGgDdSsPp]\d{8}/,
-  /[HhMm]\d{10}/,
-  /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/,
+  // IP 地址（至少有一段是两位或三位数字，排除 1.2.3.4 这类全单位数版本号）
+  /\b(?:\d{2,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}|\d{1,3}\.\d{2,3}\.\d{1,3}\.\d{1,3}|\d{1,3}\.\d{1,3}\.\d{2,3}\.\d{1,3}|\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{2,3})\b/,
+  // Token/密钥（需要 key=value 格式）
   /(?:token|access_?token|api_?key|secret|password|passwd|pwd)\s*[=＝]\s*\S{6,}/i,
+  // URL 敏感参数
   /[?&](?:phone|mobile|email|uid|user_?id|token|id_?card|openid)=/i,
+  // 微信/QQ（需要关键词前缀）
   /(?:微信号?|wxid|QQ号?)[：:\s]\s*[A-Za-z0-9_.\-]{4,}/i,
+  // 合同编号（字母+数字格式，特征明确）
   /[A-Z]{2,6}-\d{4,8}/,
-  /(?<!\d)\d{14,25}(?!\d)/,
-  /(?:姓名|手机|身份证|邮箱|地址|银行卡|税号|发票|合同|订单|流水|账户|供应商|客户|金额|收入|支出|利润|营收|成本|薪资|部门|项目|车牌|护照|公司|用户名|联系人|出生|年龄|估值|融资|市值|营业额|GMV|ARR)/,
-  /(?:name|username|company|vendor|supplier|customer|address|salary|revenue|profit|department|valuation|funding)\s*[=:]\s*\S/i,
+  // 中文敏感关键词（上下文触发）
+  /(?:姓名|手机|身份证|邮箱|地址|银行卡|发票|合同|订单|流水|供应商|客户|金额|收入|支出|利润|营收|成本|薪资|部门|项目|车牌|护照|公司|用户名|联系人|出生日期|生日|年龄|估值|融资|市值|营业额|GMV|ARR|驾驶证|社保|公积金|统一社会信用代码|信用代码|营业执照)/,
+  /(?:name|username|company|vendor|supplier|customer|address|salary|revenue|profit|department|valuation|funding|passport|social_security|driver_license)\s*[=:]\s*\S/i,
   // 金融数字（估值/融资/营收等 + 数字 + 单位）
   /(?:估值|融资|营收|利润|市值|GMV|ARR|MRR)[\s\u3000]*[\d,，]+(?:\.\d+)?[\s\u3000]*(?:亿|万|百万|million|billion|M|B)/i,
 ]

@@ -150,3 +150,51 @@ export const TOOL_PARAMS = {
   readManyFiles: { paths: ['/tmp/a.csv', '/tmp/b.xlsx', '/tmp/c.txt'] },
   readNonFile:   { file_path: '/tmp/test.txt' },
 }
+
+// ── skip-guard 样本 ───────────────────────────────────────────────────────────
+
+/** 带 skip-guard 前缀的 OpenAI 请求体（含敏感信息，但应跳过脱敏） */
+export const OPENAI_REQUEST_SKIP = {
+  model: 'gpt-4',
+  messages: [
+    { role: 'system', content: '你是一个助手' },
+    { role: 'user',   content: '[skip-guard] 帮我分析这个客户：张三，手机13812345678，身份证110101199001011234' },
+  ],
+}
+
+/** 带 skip-guard 前缀的 Anthropic 请求体（system 字段带前缀） */
+export const ANTHROPIC_REQUEST_SKIP_SYSTEM = {
+  model: 'claude-3',
+  system: '[skip-guard] 你是一个数据分析助手，以下是原始数据',
+  messages: [
+    { role: 'user', content: '客户邮箱：user@example.com，银行卡：6222021234567890123' },
+  ],
+}
+
+/** 带 skip-guard 前缀的旧版 prompt 请求体 */
+export const REQUEST_SKIP_PROMPT = {
+  model: 'text-davinci-003',
+  prompt: '[skip-guard] 分析以下数据：手机13812345678',
+}
+
+/** content parts 数组格式，第一个 text part 带 skip-guard 前缀 */
+export const OPENAI_REQUEST_SKIP_PARTS = {
+  model: 'gpt-4o',
+  messages: [
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: '[skip-guard] 请分析这张图片中的数据：手机13812345678' },
+        { type: 'image_url', image_url: { url: 'data:image/png;base64,abc' } },
+      ],
+    },
+  ],
+}
+
+/** 自定义前缀的请求体 */
+export const OPENAI_REQUEST_CUSTOM_SKIP = {
+  model: 'gpt-4',
+  messages: [
+    { role: 'user', content: '[no-guard] 手机：13812345678' },
+  ],
+}

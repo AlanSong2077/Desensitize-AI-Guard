@@ -332,3 +332,185 @@ suite('core › findColRule() 列名匹配', () => {
     assert.notNullish(findColRule('bank-card'))
   })
 })
+
+// ── 误伤回归测试（False Positive Regression）────────────────────────────────
+// 验证修复后这些场景不再被误伤
+
+suite('core › 误伤回归（不应被脱敏的内容）', () => {
+
+  // ── 日期 ──────────────────────────────────────────────────────────────────
+  test('普通日期字符串不被误伤为出生日期', () => {
+    const cases = [
+      '今天是2025-04-03',
+      '截止日期：2024-12-31',
+      '创建时间：20231201',
+      '文件名：report_20250101.pdf',
+      '版本发布于 2024-06-15',
+      '2025年第一季度',
+    ]
+    for (const text of cases) {
+      const { stats } = desensitize(text)
+      assert.equal(stats['出生日期'], undefined, `"${text}" 不应被识别为出生日期`)
+    }
+  })
+
+  test('出生日期关键词触发时正确脱敏', () => {
+    const { stats } = desensitize('出生日期：1990-01-15')
+    assert.hasKey(stats, '出生日期')
+  })
+
+  test('生日关键词触发时正确脱敏', () => {
+    const { stats } = desensitize('生日：1985/06/20')
+    assert.hasKey(stats, '出生日期')
+  })
+
+  // ── 版本号 ────────────────────────────────────────────────────────────────
+  test('软件版本号不被误伤为 IP 地址', () => {
+    const cases = [
+      'v1.2.3.4',
+      '版本 0.9.1.0',
+      'node v1.2.3.4',
+      '依赖版本：2.0.1.0',
+    ]
+    for (const text of cases) {
+      const { stats } = desensitize(text)
+      assert.equal(stats['IP地址'], undefined, `"${text}" 不应被识别为 IP 地址`)
+    }
+  })
+
+  test('真实 IP 地址仍被正确脱敏', () => {
+    const { stats } = desensitize('服务器IP：192.168.1.100')
+    assert.hasKey(stats, 'IP地址')
+  })
+
+  test('127.0.0.1 回环地址被脱敏', () => {
+    const { stats } = desensitize('本机地址 127.0.0.1 监听')
+    assert.hasKey(stats, 'IP地址')
+  })
+
+  // ── 座机号 ────────────────────────────────────────────────────────────────
+  test('小数不被误伤为座机号', () => {
+    const cases = [
+      '0.123456789',
+      '比率 0.5678901',
+      '精度：0.00123456',
+    ]
+    for (const text of cases) {
+      const { stats } = desensitize(text)
+      assert.equal(stats['座机号码'], undefined, `"${text}" 不应被识别为座机号`)
+    }
+  })
+
+  test('带分隔符的座机号仍被脱敏', () => {
+    const { stats } = desensitize('联系电话：010-12345678')
+    assert.hasKey(stats, '座机号码')
+  })
+
+  // ── 驾驶证 ────────────────────────────────────────────────────────────────
+  test('12位时间戳不被误伤为驾驶证', () => {
+    const cases = [
+      '时间戳：202504031200',
+      '编号：123456789012',
+      '金额：100000000000',
+    ]
+    for (const text of cases) {
+      const { stats } = desensitize(text)
+      assert.equal(stats['驾驶证号'], undefined, `"${text}" 不应被识别为驾驶证`)
+    }
+  })
+
+  test('驾驶证关键词触发时正确脱敏', () => {
+    const { stats } = desensitize('驾驶证号：123456789012')
+    assert.hasKey(stats, '驾驶证号')
+  })
+
+  // ── 社保卡 ────────────────────────────────────────────────────────────────
+  test('17-18位长数字不被无上下文误伤为社保卡', () => {
+    const cases = [
+      '数据量：12345678901234567',
+      '编号：123456789012345678',
+    ]
+    for (const text of cases) {
+      const { stats } = desensitize(text)
+      assert.equal(stats['社保卡号'], undefined, `"${text}" 不应被识别为社保卡`)
+    }
+  })
+
+  test('社保关键词触发时正确脱敏', () => {
+    const { stats } = desensitize('社保卡号：12345678901234567')
+    assert.hasKey(stats, '社保卡号')
+  })
+
+  // ── 统一社会信用代码 ──────────────────────────────────────────────────────
+  test('18位哈希/UUID片段不被误伤为统一社会信用代码', () => {
+    const cases = [
+      'commit: a1b2c3d4e5f6a7b8c9',
+      'hash: 91350000MA31Y0XH1A',
+      'token: 91350000MA31Y0XH1A',
+    ]
+    for (const text of cases) {
+      const { stats } = desensitize(text)
+      assert.equal(stats['统一社会信用代码'], undefined, `"${text}" 不应被识别为统一社会信用代码`)
+    }
+  })
+
+  test('统一社会信用代码关键词触发时正确脱敏', () => {
+    const { stats } = desensitize('统一社会信用代码：91350000MA31Y0XH1A')
+    assert.hasKey(stats, '统一社会信用代码')
+  })
+
+  // ── 护照 ──────────────────────────────────────────────────────────────────
+  test('产品型号/编号不被误伤为护照', () => {
+    const cases = [
+      '型号：E12345678',
+      '产品编号：G87654321',
+      '序列号：P00000001',
+    ]
+    for (const text of cases) {
+      const { stats } = desensitize(text)
+      assert.equal(stats['护照号'], undefined, `"${text}" 不应被识别为护照`)
+    }
+  })
+
+  test('护照关键词触发时正确脱敏', () => {
+    const { stats } = desensitize('护照号：E12345678')
+    assert.hasKey(stats, '护照号')
+  })
+
+  // ── 订单/流水号 ───────────────────────────────────────────────────────────
+  test('时间戳/文件大小等长数字不被误伤为订单号', () => {
+    const cases = [
+      '时间戳：1712131200000',
+      '文件大小：12345678901234',
+      '数据条数：100000000000000',
+    ]
+    for (const text of cases) {
+      const { stats } = desensitize(text)
+      assert.equal(stats['订单/流水号'], undefined, `"${text}" 不应被识别为订单号`)
+    }
+  })
+
+  test('订单号关键词触发时正确脱敏', () => {
+    const { stats } = desensitize('订单号：20231201123456789')
+    assert.hasKey(stats, '订单/流水号')
+  })
+
+  test('流水号关键词触发时正确脱敏', () => {
+    const { stats } = desensitize('流水号：TXN20231201001')
+    assert.hasKey(stats, '订单/流水号')
+  })
+
+  // ── mightContainSensitiveData 误报 ────────────────────────────────────────
+  test('普通日期文本不触发快速检测', () => {
+    assert.equal(mightContainSensitiveData('今天是2025-04-03，明天是2025-04-04'), false)
+  })
+
+  test('版本号不触发快速检测', () => {
+    assert.equal(mightContainSensitiveData('当前版本 v1.2.3.4，最新版本 2.0.1.0'), false)
+  })
+
+  test('普通长数字不触发快速检测', () => {
+    // 12位数字不在银行卡(16-19位)范围内，不应触发快速检测
+    assert.equal(mightContainSensitiveData('数据量统计：123456789012'), false)
+  })
+})
