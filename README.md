@@ -25,11 +25,11 @@ Your Machine
 ┌─────────────────────────────────────────────────┐
 │  OpenClaw Gateway                               │
 │                                                 │
-│  Layer 2 — Tool Hook                           │
+│  Layer 2 — Tool Hook                            │
 │    Intercepts read / read_file / read_many_files│
 │    Sanitizes CSV / XLSX / XLS before AI sees it │
 │                                                 │
-│  Layer 1 — HTTP Proxy (port 47291)             │
+│  Layer 1 — HTTP Proxy (port 47291)              │
 │    Intercepts all POST /v1/* requests           │
 │    Sanitizes request body before forwarding     │
 └─────────────────────────────────────────────────┘
