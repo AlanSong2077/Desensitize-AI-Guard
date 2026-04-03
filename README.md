@@ -1,228 +1,269 @@
-# Data Guard
+# data-guard
 
-> AI 数据隐私护盾 | Dual-layer data desensitization for OpenClaw
-
-双重防护：HTTP 代理层拦截消息文本 + 工具调用层拦截文件内容。纯 Node.js，零外部依赖，数据不离开本机。
+> Dual-layer data desensitization plugin for OpenClaw. Sensitive data is sanitized locally before it ever reaches an AI API.
 
 ---
 
-## 特性 | Features
+## Overview
+
+**Data Guard** intercepts outbound AI requests at two independent layers — an HTTP proxy and a tool hook — ensuring that personal and sensitive information is masked on your machine before being sent upstream. No external dependencies. No data leaves your device unmasked.
 
 | | |
 |---|---|
-| 🛡️ **双重脱敏层** | HTTP 代理层（所有 `POST /v1/*`） + 工具调用层（CSV/XLSX/XLS 文件） |
-| 🔒 **30+ 敏感类型** | 手机号、身份证、银行卡、邮箱、IP、Token、姓名、企业名称、地址、金额... |
-| 📊 **CSV 列名精准脱敏** | 根据列头名称自动识别并脱敏 24 类敏感列 |
-| ⚡ **零外部依赖** | 纯 Node.js 实现，全部自研 |
-| 🔒 **Fail-Safe** | 脱敏失败默认阻断，不透传原始数据 |
-| 🧪 **150+ 测试用例** | 覆盖所有脱敏类型、格式处理器、插件层、代理层 |
+| Version | 2.0.3 |
+| Plugin ID | `data-guard` |
+| Engine | Pure Node.js — zero external dependencies |
+| Platform | macOS · Linux · Windows |
+| License | MIT |
 
 ---
 
-## 架构 | Architecture
+## How It Works
 
 ```
-OpenClaw → ProxyServer (127.0.*.*:47291) → AI Provider API
-               ↑
-         拦截所有 HTTP 请求
-         递归脱敏 request body
+Your Machine
+┌─────────────────────────────────────────────────┐
+│  OpenClaw Gateway                               │
+│                                                 │
+│  Layer 2 — Tool Hook                           │
+│    Intercepts read / read_file / read_many_files│
+│    Sanitizes CSV / XLSX / XLS before AI sees it │
+│                                                 │
+│  Layer 1 — HTTP Proxy (port 47291)             │
+│    Intercepts all POST /v1/* requests           │
+│    Sanitizes request body before forwarding     │
+└─────────────────────────────────────────────────┘
+              │  sanitized only
+              ▼
+        AI Provider API
+   (OpenAI / Claude / MiniMax / Qwen …)
 ```
 
-| 层 Layer | 触发 Trigger | 机制 Mechanism | 覆盖 Coverage |
-|---|---|---|---|
-| HTTP 代理层 | `POST /v1/*` | 本地反向代理，改写 baseUrl 后拦截请求体 | 所有消息文本 |
-| 工具调用层 | `read`/`read_file` | 拦截工具参数，替换为脱敏后的临时文件 | CSV/XLSX/XLS |
+| Layer | Trigger | What it covers |
+|-------|---------|----------------|
+| L1: HTTP Proxy | Every outbound API call | All message text sent to the model |
+| L2: Tool Hook | `read`, `read_file`, `read_many_files` | CSV / XLSX / XLS file contents |
+
+The two layers are complementary. L2 handles structured file data with column-level precision; L1 catches anything that slips through as free text in the conversation.
 
 ---
 
-## 支持的脱敏类型 | Supported Types
+## Supported Data Types
 
-| 类型 Type | 规则 Rule | 示例 Example |
-|---|---|---|
-| 🇨🇳 手机号 | `1[3-9]\d{9}` | `138****5678` → `138****5678` |
-| 🪪 身份证号 | 18位大陆/港澳台/护照 | `1101***99****11234` → `1101***********1234` |
-| 🏦 银行卡 | 16-19位 + Luhn校验 | `6222***********0123` → `6222**********0123` |
-| 📧 邮箱 | Standard format | `z***g@example.com` → `z**@e******.com` |
-| 🌐 IP地址 | IPv4 / IPv6 | `192.168.*.*` → `192.168.*.*` |
-| 🔐 Token/密钥 | `sk-`/`api_key` 等 | `sk-abcdefgh...` → `sk-****************123456` |
-| 👤 姓名 | 上下文感知映射 | `张三` → `用户_a1b2`（同 ctx 内一致） |
-| 🏢 企业/集团/基金 | 60+ 后缀词 + 前缀词 | `某某科技有限公司` → `企业_甲公司` |
-| 🤝 供应商/客户 | 字母顺序编号 | `A公司` → `供应商_A` |
-| 🏠 部门 | 字母顺序编号 | `销售部` → `部门_A` |
-| 📍 地址 | 省市保留，详细地址脱敏 | `北京市朝阳区建国路88号` → `北京市朝阳区****88号` |
-| 💰 金额 | 随机缩放（0.3-0.7x） | `¥128,888` → `¥*元` |
-| 🚗 车牌号 | 保留省市和字母 | `京A12345` → `京A***45` |
-| 📅 出生日期 | 精确到年月 | `1990年5月15日` → `****年5月15日` |
-| 🪪 社保/公积金 | 6位 hash | `GJJ1234567890` → `GJJ_56a3c9` |
-| 👔 工号 | 6位 hash | `EMP2024001` → `EMP_01abcd` |
-| 🛒 订单/流水号 | 前缀保留 | `DD2023123456789` → `DD*************` |
-| 🧾 发票/合同号 | 前缀保留 | `HT2023xxxx` → `HT*************` |
-| 💳 微信/QQ号 | 保留前缀 | `wxid_abcdefghijklm` → `wxid_************lm` |
+30+ categories of sensitive data are recognized and masked:
 
-### CSV 列名精准脱敏 | CSV Column-Level Rules
+| Category | Example input | Masked output |
+|----------|--------------|---------------|
+| Phone number | `13812345678` | `138****5678` |
+| Chinese ID card | `110101199001011234` | `1101***********1234` |
+| Bank card | `6222021234567890123` | `6222**********0123` |
+| Email | `user@example.com` | `u***r@example.com` |
+| Passport | `E12345678` | `E********` |
+| IPv4 / IPv6 | `192.168.1.100` | `192.168.*.*` |
+| Tax / credit code | `91310000MA1FL3XH2G` | `91**************2G` |
+| Invoice number | `FP1234567890` | `FP***********` |
+| Order / transaction ID | `DD2023123456789` | `DD*************` |
+| Social security card | `123456789012345678` | `**************5678` |
+| Name | `张明伟` | `用户_a3f2` |
+| Address | `北京市朝阳区建国路88号` | `北京市朝阳区***` |
+| Token / password fields | `Bearer eyJhbGci…` | `Bearer ********` |
+| WeChat / QQ ID | `wx_abc123` | `wx_****` |
+| Vehicle plate | `京A·12345` | `京A·***45` |
+| Amount (scaled) | `¥1,250,000` | `¥937,500` (random scale) |
+| … and more | | |
 
-```csv
-# 输入（AI 看不到原始数据）
-姓名,手机号,身份证号,银行卡号,邮箱,地址
-张明伟,13812345678,110101199001011234,62220212345678900123,zhangsan@example.com,北京市朝阳区建国路88号
+### Column-level desensitization for structured files
 
-# 输出（AI 收到的脱敏数据）
-姓名,手机号,身份证号,银行卡号,邮箱,地址
-张**,138****5678,1101***********1234,6222**********0123,z**@e******.com,北京市朝阳区****88号
+When reading CSV or Excel files, Data Guard identifies sensitive columns by header name and applies the appropriate mask per column — not a blanket regex over the whole file.
+
+```
+Input (AI never sees this):
+姓名,手机号,身份证号,银行卡号,邮箱
+张明伟,13812345678,110101199001011234,6222021234567890123,zhang@example.com
+
+Output (what the AI receives):
+姓名,手机号,身份证号,银行卡号,邮箱
+用户_a3f2,138****5678,1101***********1234,6222**********0123,z***g@example.com
 ```
 
 ---
 
-## 快速开始 | Quick Start
+## Installation
+
+**Prerequisites:** Node.js >= 18, OpenClaw Gateway
 
 ```bash
-# 安装
-openclaw plugins install AlanSong2077/openclaw-plugins-data-guard
+# 1. Clone and pack
+git clone https://github.com/your-org/openclaw-plugins-data-guard.git
+cd openclaw-plugins-data-guard
+npm pack
 
-# 验证
-openclaw plugins list | grep data-guard
+# 2. Install into OpenClaw
+openclaw plugins install data-guard-2.0.3.tgz
 
-# 重启 Gateway
+# 3. Restart the gateway
 openclaw gateway restart
-```
 
-安装后自动完成：
-1. 启动本地 HTTP 代理（默认端口 `47291`）
-2. 改写 `openclaw.json` 中所有 provider 的 `baseUrl`
-3. 注册文件脱敏工具钩子
+# 4. Verify
+openclaw plugins list
+# data-guard   loaded   2.0.3
+```
 
 ---
 
-## 配置 | Configuration
+## Configuration
 
-```json
-{
-  "plugins": {
-    "entries": {
-      "data-guard": {
-        "enabled": true,
-        "config": {
-          "port": 47291,
-          "blockOnFailure": true,
-          "fileGuard": true,
-          "skipPrefix": "[skip-guard]"
-        }
-      }
-    }
+Configuration is managed through the OpenClaw plugin config system. The following options are available:
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `port` | integer | `47291` | Port the local HTTP proxy listens on |
+| `blockOnFailure` | boolean | `true` | Block the request if desensitization fails. Set to `false` to fail open (not recommended) |
+| `fileGuard` | boolean | `true` | Enable Layer 2 file desensitization |
+| `skipPrefix` | string | `[skip-guard]` | Prepend this string to a message to bypass text desensitization for that message |
+
+The proxy also reads two environment variables at startup:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATA_GUARD_PORT` | `47291` | Proxy port (overrides plugin config) |
+| `DATA_GUARD_BLOCK_ON_FAILURE` | `true` | Fail-safe mode |
+
+
+
+---
+
+## Orphan Process Protection
+
+The proxy runs as a child process of the gateway. Two mechanisms ensure it never becomes an orphan and block the port on the next startup:
+
+**Heartbeat (proxy side):** Every 5 seconds the proxy checks whether its parent process is still alive using `process.kill(ppid, 0)`. If the parent is gone (`ESRCH`), the proxy shuts itself down and removes its PID file.
+
+**PID file cleanup (plugin side):** On every `start()`, the plugin reads `~/.openclaw/data-guard/proxy.pid` and kills any stale process before spawning a new one. The same cleanup runs on `stop()` as a fallback.
+
+---
+
+## Skipping Desensitization
+
+To send a message without text desensitization (Layer 1), prefix it with `[skip-guard]` (configurable via `skipPrefix`). Layer 2 file desensitization is unaffected by this prefix.
+
+---
+
+## Extending Data Guard
+
+### Adding a new file format
+
+```js
+import { FileFormat } from 'data-guard/plugins/tool/formats/FileFormat'
+import { registry }   from 'data-guard/plugins/tool/formats'
+
+class OdsFormat extends FileFormat {
+  get extensions() { return ['.ods'] }
+  parse(buffer)    { /* return { sheets: [{ name, rows }] } */ }
+}
+
+registry.register(new OdsFormat())
+// FileDesensitizePlugin will automatically handle .ods files
+```
+
+### Adding a new tool plugin
+
+```js
+import { ToolPlugin } from 'data-guard/plugins/base/ToolPlugin'
+
+class MyPlugin extends ToolPlugin {
+  get id()             { return 'my-plugin' }
+  get name()           { return 'My Plugin' }
+  get supportedTools() { return ['my_tool'] }
+
+  handleToolCall(toolName, params, config, logger) {
+    // return { params: modifiedParams } or undefined to pass through
   }
 }
 ```
 
-| 配置 Config | 默认 Default | 说明 Description |
-|---|---|---|
-| `port` | `47291` | HTTP 代理监听端口 |
-| `blockOnFailure` | `true` | 脱敏失败时阻断请求（`false`=透传） |
-| `fileGuard` | `true` | 启用文件脱敏（CSV/XLSX/XLS） |
-| `skipPrefix` | `[skip-guard]` | 消息加此前缀可跳过该条文本脱敏 |
+---
+
+## Project Structure
+
+```
+data-guard/
+├── index.js                          # Plugin entry — wires all layers together
+├── openclaw.plugin.json              # Plugin manifest
+├── package.json
+└── src/
+    ├── core/
+    │   └── desensitize.js            # Desensitization engine (30+ rules, zero deps)
+    ├── input/
+    │   └── FileReader.js             # Reads file → parses → desensitizes → temp file
+    ├── output/
+    │   └── TempFileManager.js        # Temp file lifecycle management
+    ├── proxy/
+    │   ├── ProxyServer.js            # HTTP reverse proxy server
+    │   ├── UrlRewriter.js            # Rewrites provider baseUrls in openclaw.json
+    │   └── proxy-process.js          # Proxy child process entry point
+    └── plugins/
+        ├── base/
+        │   ├── Plugin.js             # Abstract base class for all plugins
+        │   └── ToolPlugin.js         # Base class for tool-hook plugins
+        ├── ProxyPlugin.js            # HTTP proxy plugin (registerService)
+        └── tool/
+            ├── FileDesensitizePlugin.js
+            └── formats/
+                ├── FileFormat.js     # Abstract format + registry
+                ├── CsvFormat.js
+                ├── XlsxFormat.js
+                ├── XlsFormat.js
+                └── index.js
+```
 
 ---
 
-## 扩展 | Extension
+## Troubleshooting
 
-### 添加新文件格式（3 行代码）
+**Port 47291 already in use**
 
-```js
-import { FileFormat, registry } from './plugins/tool/formats/index.js'
-
-class PdfFormat extends FileFormat {
-  get extensions() { return ['.pdf'] }
-  parse(buffer) { /* 解析 PDF，返回 { rows } 或 null */ }
-}
-
-registry.register(new PdfFormat())
-```
-
-### 独立使用 ProxyServer
-
-```js
-import { ProxyServer } from './proxy/ProxyServer.js'
-import { syncBaseUrls } from './proxy/UrlRewriter.js'
-
-const proxy = new ProxyServer({ port: 47291, blockOnFailure: true })
-await proxy.start()
-
-// 改写 openclaw.json baseUrl
-syncBaseUrls('./openclaw.json', 47291, logger)
-```
-
----
-
-## 测试 | Testing
+This should no longer happen in v2.0.3 — the plugin automatically kills any stale proxy process on startup. If it does occur:
 
 ```bash
-npm test          # 全部测试（150+ 用例）
-npm run test:core # 核心脱敏引擎
-npm run test:bail # 遇错即停
+lsof -i :47291        # find the process
+kill <PID>            # kill it
+openclaw gateway restart
 ```
 
----
-
-## 项目结构 | Structure
-
-```
-src/
-├── core/desensitize.js        # 脱敏引擎（30+ 规则，零依赖）
-├── input/FileReader.js        # 文件读取 → 解析 → 脱敏 → 临时文件
-├── output/TempFileManager.js   # 临时文件生命周期管理
-├── proxy/
-│   ├── ProxyServer.js         # HTTP 反向代理
-│   ├── UrlRewriter.js         # openclaw.json baseUrl 改写
-│   └── proxy-process.js       # 子进程入口
-└── plugins/
-    ├── ProxyPlugin.js          # 代理服务注册
-    ├── base/Plugin.js          # 插件基类
-    └── tool/
-        ├── FileDesensitizePlugin.js  # 文件脱敏插件
-        └── formats/            # CSV / XLSX / XLS 格式处理器
-```
-
----
-
-## 故障排查 | Troubleshooting
+**Plugin not loading**
 
 ```bash
-# 端口占用
-lsof -i :47291
-kill -9 <PID>
+openclaw plugins list           # check status
+openclaw plugins uninstall data-guard --force
+openclaw plugins install data-guard-2.0.3.tgz
+openclaw gateway restart
+```
 
-# 诊断
-openclaw plugins doctor
+**Check proxy logs**
 
-# 查看代理日志
-cat ~/.openclaw/data-guard/proxy.log
-grep "已脱敏" ~/.openclaw/data-guard/proxy.log
+```bash
+tail -f ~/.openclaw/data-guard/proxy.log
 ```
 
 ---
 
-## 版本历史 | Changelog
+## Contributing
 
-### v2.0.3
-- 🧪 完整测试套件（150+ 测试用例）
-- 🏗️ 重构为 5 层架构
-- 📝 重写 README
+Pull requests are welcome. Please open an issue first to discuss significant changes.
 
-### v2.0.2
-- 🆕 港澳台身份证、驾照、社保卡、公积金号
-- ✅ Luhn 校验防误报
+### Acknowledgements
 
-### v2.0.1
-- ✨ CSV 列名精准脱敏（24 类列名规则）
-- 🆕 企业/供应商/部门/项目/金额/车牌/工号脱敏
+- **keyuzhang838-dotcom** — contributed the Hook Plugins module
 
 ---
 
-## 🙏 致谢 | Acknowledgements
+## Authors
 
-- **keyuzhang838-dotcom** — Hook Plugins 模块贡献
+Alan Song · Roxy Li
 
 ---
 
-## 📄 License
+## License
 
 MIT
