@@ -20,7 +20,7 @@
 
 ## 🎯 产品定位 | Product Positioning
 
-> **专为中小型金融机构、创投企业打造的隐私合规解决方案**
+> **专为中小型金融机构、创投企业打造的隐私合规开源解决方案**
 >
 > **Privacy-First AI Solution for Financial & VC Institutions**
 
