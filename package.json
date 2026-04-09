@@ -1,7 +1,7 @@
 {
   "name": "data-guard",
-  "version": "2.0.6",
-  "description": "Data Guard — 双层数据脱敏插件（HTTP 代理层 + 工具调用层）。分层架构：输入层/输出层/代理层/插件层/核心层，支持扩展新文件格式。纯 Node.js 引擎（零外部依赖），30+ 类脱敏 + CSV/XLSX/XLS 列名精准脱敏。",
+  "version": "2.2.1",
+  "description": "Data Guard — 四层数据脱敏插件（HTTP 代理层 + 文件工具层 + Python exec 层 + Shell exec 层）。安装时自动清除旧版 hook，防止多版本冲突。纯 Node.js 引擎（零外部依赖），30+ 类脱敏 + CSV/XLSX/XLS 列名精准脱敏 + Python/Shell exec 拦截。",
   "type": "module",
   "main": "index.js",
   "exports": {
@@ -15,6 +15,8 @@
     "./plugins/tool/formats/XlsxFormat": "./src/plugins/tool/formats/XlsxFormat.js",
     "./plugins/tool/formats/XlsFormat": "./src/plugins/tool/formats/XlsFormat.js",
     "./plugins/tool/FileDesensitizePlugin": "./src/plugins/tool/FileDesensitizePlugin.js",
+    "./plugins/exec/PythonExecPlugin": "./src/plugins/exec/PythonExecPlugin.js",
+    "./migrate/cleanLegacy": "./src/migrate/cleanLegacy.js",
     "./plugins/ProxyPlugin": "./src/plugins/ProxyPlugin.js",
     "./input/FileReader": "./src/input/FileReader.js",
     "./output/TempFileManager": "./src/output/TempFileManager.js",

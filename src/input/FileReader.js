@@ -42,16 +42,124 @@ export function makeTempPath(originalPath, tempDir, format) {
   return `${tempDir}/dg_${hash}${ext}`
 }
 
+// ── 表格方向识别 ──────────────────────────────────────────────────────────────
+
+/**
+ * 判断一个 sheet 是否是纵表（转置表）
+ *
+ * 纵表特征：
+ *   - 第一列是"字段名"列，每行第一个单元格是列名（如"姓名"、"手机"）
+ *   - 第二列（及后续列）是对应的值
+ *
+ * 判断策略：
+ *   扫描第一列，若其中 >= 40% 的单元格能匹配到列名规则，则认为是纵表。
+ *   同时要求第一列至少有 3 行有内容，避免误判极小表格。
+ *
+ * @param {Array<Array<string>>} rows
+ * @returns {boolean}
+ */
+function isVerticalTable(rows) {
+  if (rows.length < 3) return false
+  const firstCol = rows.map(r => String(r[0] ?? '').trim()).filter(Boolean)
+  if (firstCol.length < 3) return false
+  const matchCount = firstCol.filter(h => findColRule(h) !== null).length
+  return matchCount / firstCol.length >= 0.4
+}
+
 // ── 列级脱敏（精准模式）──────────────────────────────────────────────────────
 
 /**
- * 对 ParsedFile 中的所有 Sheet 执行列名精准脱敏
+ * 横表脱敏：第一行为表头，后续行为数据行
+ */
+function desensitizeHorizontal(sheet, ctx, byType) {
+  let totalHits = 0
+  const headers = sheet.rows[0]
+  const rules   = headers.map(h => findColRule(String(h ?? '').trim()))
+
+  const newRows = sheet.rows.map((row, rowIdx) => {
+    if (rowIdx === 0) return row  // 保留表头
+    return row.map((cell, colIdx) => {
+      const val = String(cell ?? '')
+      if (!val.trim()) return cell
+
+      const rule = rules[colIdx]
+      if (rule) {
+        const result = rule.fn(ctx, val)
+        if (result !== val) {
+          totalHits++
+          byType['文件列脱敏'] = (byType['文件列脱敏'] ?? 0) + 1
+        }
+        return result
+      }
+
+      // 无列名规则：正则兜底脱敏
+      const { result, stats } = desensitize(val)
+      const hits = Object.values(stats).reduce((a, b) => a + b, 0)
+      if (hits > 0) {
+        totalHits += hits
+        for (const [k, v] of Object.entries(stats)) {
+          byType[k] = (byType[k] ?? 0) + v
+        }
+        return result
+      }
+      return cell
+    })
+  })
+
+  return { rows: newRows, hits: totalHits }
+}
+
+/**
+ * 纵表脱敏：第一列为字段名，后续列为对应值
  *
- * 算法：
- *   1. 读取第一行作为表头
- *   2. 根据列名匹配 CSV_COLUMN_RULES
- *   3. 对每个数据行，按列规则脱敏对应单元格
- *   4. 无列名规则的单元格，用正则兜底脱敏
+ * 例：
+ *   姓名   | 张三   | 李四
+ *   手机   | 138... | 139...
+ *   地址   | 北京...| 上海...
+ *
+ * 处理方式：按行遍历，用第一列的字段名查规则，对同行其余列的值脱敏。
+ */
+function desensitizeVertical(sheet, ctx, byType) {
+  let totalHits = 0
+
+  const newRows = sheet.rows.map(row => {
+    const keyCell = String(row[0] ?? '').trim()
+    const rule    = findColRule(keyCell)
+
+    return row.map((cell, colIdx) => {
+      if (colIdx === 0) return cell  // 保留字段名列
+      const val = String(cell ?? '')
+      if (!val.trim()) return cell
+
+      if (rule) {
+        const result = rule.fn(ctx, val)
+        if (result !== val) {
+          totalHits++
+          byType['文件列脱敏(纵表)'] = (byType['文件列脱敏(纵表)'] ?? 0) + 1
+        }
+        return result
+      }
+
+      // 无规则：正则兜底
+      const { result, stats } = desensitize(val)
+      const hits = Object.values(stats).reduce((a, b) => a + b, 0)
+      if (hits > 0) {
+        totalHits += hits
+        for (const [k, v] of Object.entries(stats)) {
+          byType[k] = (byType[k] ?? 0) + v
+        }
+        return result
+      }
+      return cell
+    })
+  })
+
+  return { rows: newRows, hits: totalHits }
+}
+
+/**
+ * 对 ParsedFile 中的所有 Sheet 执行脱敏
+ * 自动识别横表 / 纵表，分别处理
  *
  * @param {ParsedFile} parsed
  * @returns {{ sheets: ParsedFile, stats: { total: number, byType: Record<string,number> } }}
@@ -64,43 +172,12 @@ export function desensitizeSheets(parsed) {
   const sheets = parsed.sheets.map(sheet => {
     if (sheet.rows.length === 0) return sheet
 
-    const headers = sheet.rows[0]
-    const rules   = headers.map(h => findColRule(String(h ?? '').trim()))
+    const vertical = isVerticalTable(sheet.rows)
+    const { rows: newRows, hits } = vertical
+      ? desensitizeVertical(sheet, ctx, byType)
+      : desensitizeHorizontal(sheet, ctx, byType)
 
-    const newRows = sheet.rows.map((row, rowIdx) => {
-      if (rowIdx === 0) return row  // 保留表头
-      return row.map((cell, colIdx) => {
-        const val = String(cell ?? '')
-        if (!val.trim()) return cell
-
-        const rule = rules[colIdx]
-        if (rule) {
-          // 列名精准脱敏
-          const result = rule.fn(ctx, val)
-          if (result !== val) {
-            totalHits++
-            byType['文件列脱敏'] = (byType['文件列脱敏'] ?? 0) + 1
-          }
-          return result
-        }
-
-        // 无列名规则：正则兜底脱敏
-        // 注意：不做 mightContainSensitiveData 前置过滤——单元格值脱离上下文时
-        // 快速检测容易漏判（如单独的出生日期"19901201"、座机"010-12345678"），
-        // 直接调用 desensitize()，内部有快速路径，无命中时直接返回原值。
-        const { result, stats } = desensitize(val)
-        const hits = Object.values(stats).reduce((a, b) => a + b, 0)
-        if (hits > 0) {
-          totalHits += hits
-          for (const [k, v] of Object.entries(stats)) {
-            byType[k] = (byType[k] ?? 0) + v
-          }
-          return result
-        }
-        return cell
-      })
-    })
-
+    totalHits += hits
     return { ...sheet, rows: newRows }
   })
 

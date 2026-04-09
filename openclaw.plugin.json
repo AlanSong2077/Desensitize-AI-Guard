@@ -1,8 +1,8 @@
 {
   "id": "data-guard",
   "name": "Data Guard",
-  "version": "2.0.6",
-  "description": "双层数据脱敏插件：① HTTP 代理层——在请求发往 AI 前自动脱敏 messages 中的敏感信息（手机号、身份证、邮箱、银行卡等），以本地反向代理方式运行，数据不离开本机；② 工具调用层——在 AI 读取 CSV/XLSX/XLS 文件前按列名精准脱敏，同时拦截消息中粘贴的敏感文本。融合自 data-guard-proxy v2.2 + file-guard v1.1。",
+  "version": "2.1.0",
+  "description": "三层数据脱敏插件：① HTTP 代理层——在请求发往 AI 前自动脱敏 messages 中的敏感信息（手机号、身份证、邮箱、银行卡等），以本地反向代理方式运行，数据不离开本机；② 文件工具层——在 AI 读取 CSV/XLSX/XLS 文件前按列名精准脱敏（read/read_file 工具）；③ Python exec 层——拦截 exec/process 工具中的 Python 文件读取操作，在执行前替换为脱敏临时文件。安装时自动清除旧版 hook，防止多版本冲突。",
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
@@ -21,7 +21,12 @@
       },
       "fileGuard": {
         "type": "boolean",
-        "description": "是否启用工具调用层文件脱敏（CSV/XLSX/XLS），默认 true",
+        "description": "是否启用文件工具层脱敏（read/read_file/read_many_files 工具，CSV/XLSX/XLS），默认 true",
+        "default": true
+      },
+      "pythonGuard": {
+        "type": "boolean",
+        "description": "是否启用 Python exec 层脱敏（exec/process 工具中的 Python 文件读取），默认 true",
         "default": true
       },
       "skipPrefix": {
@@ -40,7 +45,10 @@
       "label": "脱敏失败时阻断请求"
     },
     "fileGuard": {
-      "label": "启用文件脱敏（CSV/XLSX/XLS）"
+      "label": "启用文件工具层脱敏（read 工具，CSV/XLSX/XLS）"
+    },
+    "pythonGuard": {
+      "label": "启用 Python exec 层脱敏（exec/process 工具）"
     },
     "skipPrefix": {
       "label": "跳过脱敏的消息前缀",

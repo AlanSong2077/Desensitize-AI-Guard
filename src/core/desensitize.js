@@ -3,9 +3,9 @@
  *
  * 覆盖 30+ 类敏感信息：手机号、身份证、护照、港澳台通行证、驾照、社保卡、公积金号、
  * 银行卡、统一社会信用代码、邮箱、IPv4/IPv6、token/密码、URL敏感参数、微信/QQ、
- * 合同编号、订单/流水号、发票号码、姓名、地址、企业/集团/基金名称、金额、比率、
- * 供应商/客户、部门/项目、出生日期、年龄、车牌号、工号、
- * 估值/融资/营收/利润等金融数字（放缩脱敏）
+ * 合同编号、订单/流水号、发票号码、姓名、地址、企业/集团/基金名称、
+ * 供应商/客户、部门/项目、出生日期、年龄、车牌号、工号
+ * 注：金额/比率/金融数字不脱敏，保留原值
  *
  * 导出：
  *   desensitize(text)               → { result: string, stats: Record<string,number> }
@@ -26,7 +26,6 @@ export function makeCtx() {
     vendorMap:   new Map(),
     deptMap:     new Map(),
     projectMap:  new Map(),
-    amountScale: Math.round((0.3 + Math.random() * 0.4) * 10000) / 10000,
     stats: {},
   }
 }
@@ -118,33 +117,6 @@ export function maskAddress(v) {
   const pre = p + c
   if (!r.trim()) return v
   return pre + r.trim().slice(0, 20).replace(/[\u4e00-\u9fa5\w]/g, '*')
-}
-
-export function maskAmount(ctx, v) {
-  if (typeof v !== 'string') v = String(v ?? '')
-  const n = parseFloat(v.replace(/[,，¥￥$€£₩]/g, ''))
-  if (isNaN(n)) return v
-  return String(Math.round(n * ctx.amountScale * 100) / 100)
-}
-
-export function maskRatio(v) {
-  if (typeof v !== 'string') v = String(v ?? '')
-  return v.replace(/(\d+)(\.\d+)?(%?)/, (_, i, d, p) => i + (d ? '.**' : '') + p)
-}
-
-/**
- * 金融数字放缩脱敏（估值/融资/营收/利润等）
- * 保留数量级单位（亿/万/百万/million/billion），对数值做随机放缩
- */
-export function maskFinancialNumber(ctx, v) {
-  if (typeof v !== 'string') v = String(v ?? '')
-  // 匹配数字部分（含小数）
-  return v.replace(/([\d,，]+(?:\.\d+)?)/, (_, num) => {
-    const n = parseFloat(num.replace(/[,，]/g, ''))
-    if (isNaN(n)) return num
-    const scaled = Math.round(n * ctx.amountScale * 100) / 100
-    return String(scaled)
-  })
 }
 
 export function maskContract(v) { return '合同_' + sha8(v).slice(0, 6) }
@@ -259,7 +231,7 @@ export const CSV_COLUMN_RULES = [
   { keys: ['amount','price','salary','revenue','profit','income','expense','cost','budget','fee','total','balance','payment',
            '金额','价格','薪资','收入','支出','利润','营收','成本','费用','总价','余额','实付','应收',
            '估值','融资','融资额','投资额','市值','营业额'],
-    fn: (ctx, v) => { hit(ctx, '金额'); return maskAmount(ctx, v) } },
+    fn: (_ctx, v) => v },  // 金额不脱敏，保留原值
   { keys: ['uid','userid','user_id','openid','empid','employeeid','用户ID','员工号','工号','会员ID'],
     fn: (ctx, v) => { hit(ctx, '用户ID'); return 'uid_' + sha8(v) } },
   { keys: ['ip','ipaddress','ip_address','clientip','remoteip','IP地址','服务器IP','服务器地址'],
@@ -515,10 +487,9 @@ function applyRegexRules(text, ctx) {
     /(?<!\d)(?:\+?86[\s\u3000\-]?)?1[3-9]\d[\s\u3000\-\.\/\\]?\d{4}[\s\u3000\-\.\/\\]?\d{4}(?!\d)/g,
     m => { hit(ctx, '手机号'); return maskPhone(m) }
   )
-  // 座机：0XX-XXXXXXXX 或 0XXX-XXXXXXX
-  // 要求区号与号码之间必须有明确分隔符（- 或空格），避免误伤小数/邮编+数字
+  // 座机：0XX-XXXXXXXX 或 0XXX-XXXXXXX，允许空格/换行
   text = text.replace(
-    /(?<!\d)0\d{2,3}[\-\s]\d{7,8}(?!\d)/g,
+    /(?<!\d)0\d{2,3}[\s\u3000\-\.\/\\]?\d{7,8}(?!\d)/g,
     m => { hit(ctx, '座机号码'); return maskPhone(m) }
   )
 
@@ -562,39 +533,31 @@ function applyRegexRules(text, ctx) {
   text = text.replace(/(?<!\d)[1-6]\d{6}\([\d]\)(?!\d)/g,
     m => { hit(ctx, '澳门身份证'); return maskIdCard(m, 'macau') })
 
-  // 护照（需要明确上下文关键词，避免误伤产品型号/编号等）
-  text = text.replace(
-    /(?:护照号?|passport(?:_?no)?)[：:\s]*([EeGgDdSsPp]\d{8})/gi,
-    (m, v) => { hit(ctx, '护照号'); return m.replace(v, v[0] + '****' + v.slice(-3)) }
-  )
+  // 护照
+  text = text.replace(/(?<![A-Za-z])[EeGgDdSsPp]\d{8}(?!\d)/g,
+    m => { hit(ctx, '护照号'); return m[0] + '****' + m.slice(-3) })
 
-  // 港澳台通行证（需要明确上下文关键词）
-  text = text.replace(
-    /(?:港澳通行证|台湾通行证|回乡证|通行证号?)[：:\s]*([HhMm]\d{10})/gi,
-    (m, v) => { hit(ctx, '港澳台通行证'); return m.replace(v, v.slice(0, 2) + '****' + v.slice(-4)) }
-  )
+  // 港澳台通行证
+  text = text.replace(/(?<![A-Za-z])[HhMm]\d{10}(?!\d)/g,
+    m => { hit(ctx, '港澳台通行证'); return m.slice(0, 2) + '****' + m.slice(-4) })
 
-  // 驾驶证（需要明确上下文关键词，避免误伤12位时间戳/金额等）
-  text = text.replace(
-    /(?:驾驶证号?|驾照号?|driver_?license|dl_?no)[：:\s]*([1-9]\d{11})/gi,
-    (m, v) => { hit(ctx, '驾驶证号'); return m.replace(v, maskLicenseNo(v)) }
-  )
+  // 驾驶证
+  text = text.replace(/(?<!\d)\d{12}(?!\d)/g, m => {
+    if (/^[1-9]\d{10}\d$/.test(m)) { hit(ctx, '驾驶证号'); return maskLicenseNo(m) }
+    return m
+  })
 
-  // 社保卡（需要明确上下文关键词，避免误伤长数字串）
-  text = text.replace(
-    /(?:社保卡?号?|社会保障号?|social_?security)[：:\s]*([1-9]\d{16,17})/gi,
-    (m, v) => { hit(ctx, '社保卡号'); return m.replace(v, maskSocialSecurity(v)) }
-  )
+  // 社保卡
+  text = text.replace(/(?<!\d)([1-9]\d{16,17}|[1-9]\d{10}\d{6})(?<!\d)/g,
+    m => { hit(ctx, '社保卡号'); return maskSocialSecurity(m) })
 
-  // 公积金（保留分组格式匹配，特征足够明确）
+  // 公积金
   text = text.replace(/(?<!\d)\d{10}(?:[\- ]\d{4,6})+(?!\d)/g,
     m => { hit(ctx, '公积金账号'); return maskHousingFund(m) })
 
-  // 统一社会信用代码（需要明确上下文关键词，避免误伤哈希值/UUID/版本号等）
-  text = text.replace(
-    /(?:统一社会信用代码|信用代码|营业执照号?|tax_?id|credit_?code)[：:\s]*([0-9A-HJ-NP-RT-Y]{18})/gi,
-    (m, v) => { hit(ctx, '统一社会信用代码'); return m.replace(v, maskTax(v)) }
-  )
+  // 统一社会信用代码
+  text = text.replace(/(?<![0-9A-Za-z])[0-9A-HJ-NP-RT-Y]{18}(?![0-9A-Za-z])/g,
+    m => { hit(ctx, '统一社会信用代码'); return maskTax(m) })
 
   // ── 银行卡（宽松匹配：支持空格/连字符分组，Luhn 校验）──────────────────
   // 常见格式：6222 0000 0000 0000 / 6222-0000-0000-0000
@@ -625,14 +588,10 @@ function applyRegexRules(text, ctx) {
   })
 
   // IPv4 / IPv6
-  // 收紧：排除版本号格式（如 1.2.3.4 / 0.9.1.0 这类四段都 <= 9 的小数字）
-  // 真实 IP 通常至少有一段 >= 10（私网：10.x/172.x/192.x，回环：127.x）
-  text = text.replace(/\b(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\b/g, (m, a, b, c, d) => {
-    const parts = [+a, +b, +c, +d]
-    if (!parts.every(o => o <= 255)) return m
-    // 四段都 <= 9 视为版本号，不脱敏
-    if (parts.every(o => o <= 9)) return m
-    hit(ctx, 'IP地址'); return parts[0] + '.' + parts[1] + '.*.*'
+  text = text.replace(/\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/g, m => {
+    const p = m.split('.').map(Number)
+    if (p.every(o => o <= 255)) { hit(ctx, 'IP地址'); return p[0] + '.' + p[1] + '.*.*' }
+    return m
   })
   text = text.replace(/(?<![:\w])(?:[0-9a-fA-F]{1,4}:){3,7}[0-9a-fA-F]{1,4}(?![:\w])/g,
     m => { hit(ctx, 'IPv6地址'); return '****:****:****:****' })
@@ -655,8 +614,7 @@ function applyRegexRules(text, ctx) {
       v => { hit(ctx, '[kv]地址'); return v.replace(/=(.+)/, (_, x) => '=' + maskAddress(x)) }],
     [/(?:company|corp|org)[=：][\u4e00-\u9fa5A-Za-z0-9·\-]{2,20}/gi,
       v => { hit(ctx, '[kv]企业/集团/基金名称'); return v.replace(/=(.+)/, (_, x) => '=' + maskCompany(ctx, x)) }],
-    [/(?:salary|amount|price|income|revenue|profit|valuation|funding)[=：][\d,]+(?:\.\d{1,2})?/gi,
-      v => { hit(ctx, '[kv]金额'); return v.replace(/=(.+)/, (_, x) => '=' + maskAmount(ctx, x)) }],
+    // 金额 KV 对不脱敏
     [/(?:token|api_?key|api_?secret|secret|pwd)[=：][a-zA-Z0-9_\-\.]{6,}/gi,
       v => { hit(ctx, '[kv]Token/密钥'); return v.replace(/=.+/, '=****') }],
     [/(?:ip_?addr|client_?ip|remote_?ip)[=：]\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/gi,
@@ -701,6 +659,65 @@ function applyRegexRules(text, ctx) {
   )
 
   // ── 企业 / 集团 / 基金名称（全量打码）────────────────────────────────────
+
+  // 0. 强校验层：无需上下文，碰到就掩码
+  //    覆盖没有"有限公司"等正式后缀、但结构上明确是公司名的模式：
+  //    a) 知名公司固定名单（无后缀也能命中）
+  //    b) 中文名 + 股份/控股/集团/资本/基金/投资/科技/网络/传媒/文化 等强后缀词
+  //    c) 英文公司名：Inc./Corp./Ltd./LLC/Co.,Ltd./PLC/GmbH/S.A./B.V. 等国际后缀
+
+  // 0a. 知名公司固定名单（无后缀也能命中）
+  const KNOWN_COMPANIES = [
+    // 中国互联网/科技
+    '美团', '字节跳动', '抖音', '快手', '拼多多', '滴滴', '滴滴出行',
+    '小红书', '知乎', '微博', '百度', '阿里巴巴', '腾讯', '京东', '网易',
+    '华为', '小米', 'OPPO', 'vivo', '荣耀', '一加', '魅族',
+    '比亚迪', '蔚来', '小鹏', '理想', '零跑', '哪吒',
+    '商汤', '旷视', '依图', '云从', '寒武纪', '地平线',
+    '蚂蚁', '陆金所', '京东金融', '度小满', '微众银行', '网商银行',
+    '顺丰', '菜鸟', '京东物流', '极兔', '圆通', '申通', '韵达', '中通',
+    '携程', '去哪儿', '同程', '飞猪', '途牛',
+    '爱奇艺', '优酷', '腾讯视频', 'B站', '哔哩哔哩', '芒果TV',
+    '饿了么', '盒马', '叮咚买菜', '每日优鲜',
+    '贝壳', '链家', '安居客', '房天下',
+    '好未来', '新东方', '猿辅导', '作业帮', '掌门教育',
+    '平安', '中国平安', '招商银行', '工商银行', '建设银行', '农业银行', '中国银行',
+    '中信', '光大', '民生', '浦发', '兴业', '华夏', '广发',
+    '东方财富', '同花顺', '雪球', '老虎证券', '富途',
+    // 全球科技
+    'Google', 'Apple', 'Microsoft', 'Amazon', 'Meta', 'Netflix',
+    'Tesla', 'Nvidia', 'Intel', 'AMD', 'Qualcomm', 'Samsung',
+    'Alibaba', 'Tencent', 'Baidu', 'JD', 'Meituan', 'ByteDance',
+    'Uber', 'Lyft', 'Airbnb', 'Spotify', 'Twitter', 'LinkedIn',
+    'Goldman Sachs', 'Morgan Stanley', 'JPMorgan', 'BlackRock', 'Sequoia',
+    // 知名投资机构
+    '红杉', '高瓴', 'IDG', '经纬', '真格', '源码', '光速', '启明', '纪源',
+    '软银', '淡马锡', '黑石', '凯雷', '贝恩', 'KKR', 'TPG',
+  ]
+  const KNOWN_BODY = KNOWN_COMPANIES.map(s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')
+  // 顺带吃掉可选的英文法律后缀（Inc./Ltd./Corp. 等），避免后续规则二次命中
+  const KNOWN_EN_SUFFIX = '(?:\\s+(?:Inc\\.?|Corp\\.?|Ltd\\.?|LLC|L\\.L\\.C\\.|Co\\.,?\\s*Ltd\\.?|PLC|GmbH|S\\.A\\.|B\\.V\\.|N\\.V\\.|A\\.G\\.|Pty\\.?\\s*Ltd\\.?|Pte\\.?\\s*Ltd\\.?|Holdings?|Group|Technologies?|Capital|Partners?|Ventures?|Investments?|International|Global|Worldwide))?'
+  const KNOWN_RE = new RegExp('(?<![\\u4e00-\\u9fa5A-Za-z])(' + KNOWN_BODY + ')' + KNOWN_EN_SUFFIX + '(?![\\u4e00-\\u9fa5A-Za-z])', 'g')
+  text = text.replace(KNOWN_RE, m => { hit(ctx, '企业/集团/基金名称[强校验]'); return maskCompany(ctx, m.trim()) })
+
+  // 0b. 中文名 + 行业强后缀词
+  const STRONG_CN_SUFFIXES = '(?:股份|控股|集团|资本|基金|投资|创投|风投|资管|资产|产业|实业|置业|地产|能源|电力|化工|医药|生物|农业|矿业|航空|航运|物流|传媒|文化|教育|科技|网络|数据|云计算|人工智能|芯片|半导体|新能源|汽车|金融|证券|银行|保险|信托|期货|租赁|担保|小贷|消费金融|供应链|贸易|进出口|建筑|工程|装饰|设计|咨询|律所|会所|审计|评估|公关|广告|电商|零售|餐饮|酒店|旅游|健康|养老|体育|游戏|动漫|影视|出版|印刷|包装|纺织|服装|鞋业|家居|家电|机械|设备|仪器|模具|铸造|钢铁|铝业|铜业|玻璃|陶瓷|塑料|橡胶|涂料|油漆|化妆品|日化|食品|饮料|烟草|酒业|乳业|肉类|水产|粮油|饲料|种业|林业|牧业|渔业|环保|节能|水务|燃气|热力|通信|电信|广电|卫星|航天|军工|核能|光伏|风电|储能|氢能)(?:有限公司|股份公司|集团|公司)?'
+  text = text.replace(
+    new RegExp('[\\u4e00-\\u9fa5]{2,10}' + STRONG_CN_SUFFIXES, 'g'),
+    m => { hit(ctx, '企业/集团/基金名称[强校验]'); return maskCompany(ctx, m) }
+  )
+  // 0c. 英文国际后缀（Inc/Corp/Ltd/LLC 等）
+  //     只匹配纯英文/数字/符号组成的公司名，避免与已掩码的中文 token 拼接
+  text = text.replace(
+    /[A-Za-z][A-Za-z0-9\s\-&'.]{1,40}(?:\s+(?:Inc\.?|Corp\.?|Ltd\.?|LLC|L\.L\.C\.|Co\.,?\s*Ltd\.?|PLC|GmbH|S\.A\.|B\.V\.|N\.V\.|A\.G\.|Pty\.?\s*Ltd\.?|Pte\.?\s*Ltd\.?|Holdings?|Technologies?|Solutions?|Systems?|Services?|Ventures?|Partners?|Investments?|Enterprises?|Industries?|International|Global|Worldwide))(?=[^A-Za-z]|$)/g,
+    m => {
+      // 跳过已被掩码的内容（含中文字符说明已处理过）
+      if (/[\u4e00-\u9fa5]/.test(m)) return m
+      hit(ctx, '企业/集团/基金名称[强校验]')
+      return maskCompany(ctx, m.trim())
+    }
+  )
+
   // 1. 带后缀词的公司名（最强信号，直接匹配）
   const COMPANY_SUFFIXES = '(?:有限公司|股份公司|有限责任公司|集团公司|企业集团|合伙企业|工作室|研究院|基金会|出版社|医院|学校|酒店|商场|超市|农场|养殖场|工厂|矿山|基金管理公司|基金公司|资产管理|投资集团|实业集团|控股公司|科技公司|技术公司|咨询公司|律师事务所|会计师事务所|评估公司|担保公司|租赁公司|融资公司|保理公司|信托公司|证券公司|保险公司|经纪公司|代理公司|进出口公司|电商公司|网络公司|传媒公司|文化公司|旅游公司|建筑公司|工程公司|装修公司|设计公司|农业公司|能源公司|化工公司|机械公司|电子公司|通信公司|软件公司|数据公司|物流公司|供应链公司|贸易公司|外运公司|仓储公司|人力资源|商务咨询|企业咨询|管理咨询|产业发展|产业园区|孵化器|加速器|投资管理|资本管理|私募基金|创业投资|风险投资|股权投资|并购基金|产业基金|政府引导基金)'
   text = text.replace(
@@ -713,13 +730,11 @@ function applyRegexRules(text, ctx) {
     (m, v) => { hit(ctx, '企业/集团/基金名称'); const sep = m.match(/[：:]/)[0]; return m.slice(0, m.indexOf(sep) + 1) + maskCompany(ctx, v.trim()) }
   )
   // 3. 融资/投资上下文中的公司名（宽松锚点）
-  // 例："XX公司完成A轮融资" / "投资方为XX" / "被投企业：XX"
   text = text.replace(
     /([\u4e00-\u9fa5A-Za-z0-9]{2,15})(?=(?:公司|集团|基金|品牌)?(?:完成|获得|宣布|披露|发布|公告)(?:[\u4e00-\u9fa5A-Za-z0-9亿万千百]+(?:元|美元|港元|欧元|英镑))?(?:融资|投资|上市|挂牌|并购|收购|战略合作))/g,
     (m, v) => { hit(ctx, '企业/集团/基金名称'); return maskCompany(ctx, v) }
   )
   // 4. "投资方/领投/跟投/FA" 后的机构名
-  // 支持：投资方为：XX / 投资方：XX / 投资方是XX / 领投方为XX
   text = text.replace(
     /(?:投资方|领投方|跟投方|FA机构|财务顾问|主承销商|联席承销商|保荐机构)(?:[：:]|[为是][：:]?)[\s\u3000]*([\u4e00-\u9fa5A-Za-z0-9·\-]{2,20})/g,
     (m, v) => {
@@ -740,16 +755,14 @@ function applyRegexRules(text, ctx) {
     (m, v) => { hit(ctx, '地址'); const sep = m.match(/[：:]/)[0]; return m.slice(0, m.indexOf(sep) + 1) + maskAddress(v.trim()) }
   )
 
-  // 出生日期（仅在明确上下文关键词下触发，避免误伤普通日期/时间戳/文件名）
-  // 带分隔符格式：出生日期：1990-01-01 / 生日：1990/01/01 / 出生年月：1990.01
+  // 出生日期
   text = text.replace(
-    /(?:出生日期|生日|出生年月|出生年月日|dob|birthdate|birthday)[：:\s]*((?:19|20)\d{2}[年\-\/.](0?[1-9]|1[0-2])[月\-\/.](0?[1-9]|[12]\d|3[01])[日]?)/gi,
-    (m, v) => { hit(ctx, '出生日期'); return m.replace(v, '****-**-**') }
+    /(?:出生日期|生日|出生年月)[：:]\s*(\d{4}[年\-/.]\d{1,2}[月\-/.]\d{1,2}[日]?)/g,
+    (_, k) => { hit(ctx, '出生日期'); return k + '：****-**-**' }
   )
-  // 紧凑格式：出生日期：19901201（仅在明确关键词后）
   text = text.replace(
-    /(?:出生日期|生日|出生年月|dob)[：:\s]*((?:19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01]))/gi,
-    (m, v) => { hit(ctx, '出生日期'); return m.replace(v, '****-**-**') }
+    /(?<![\d_\-])(?:19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])(?![\d_\-./\\])/g,
+    m => { hit(ctx, '出生日期'); return maskBirthDate(m) }
   )
 
   // 年龄
@@ -758,78 +771,18 @@ function applyRegexRules(text, ctx) {
     (_, k) => { hit(ctx, '年龄'); return k + '：**' }
   )
 
-  // ── 金额（货币符号）──────────────────────────────────────────────────────
-  text = text.replace(/([¥￥$€£₩])\s*([\d,]+(?:\.\d{1,2})?)/g, (_, s, num) => {
-    hit(ctx, '金额')
-    const n = parseFloat(num.replace(/,/g, ''))
-    if (isNaN(n)) return _
-    return s + Math.round(n * ctx.amountScale * 100) / 100
-  })
-  text = text.replace(/\b(?:USD|CNY|EUR|GBP|JPY|HKD|RMB)\s*([\d,]+(?:\.\d{1,2})?)/gi, (m, num) => {
-    hit(ctx, '金额')
-    const n = parseFloat(num.replace(/,/g, ''))
-    if (isNaN(n)) return m
-    return m.replace(num, String(Math.round(n * ctx.amountScale * 100) / 100))
-  })
-  text = text.replace(
-    /(?:金额|收入|支出|利润|营收|成本|税额|应付|应收|实付|实收|余额|薪资|报销|费用|价格|单价|总价|售价|定价)[：:]\s*([\d,]+(?:\.\d+)?)/g,
-    (m, num) => { hit(ctx, '金额'); return m.replace(num, maskAmount(ctx, num)) }
-  )
-
-  // ── 金融数字放缩（估值/融资/营收/利润等）────────────────────────────────
-  // 支持：X亿/X万/X百万/X million/X billion，以及带单位的融资金额
-  // 例："估值50亿" → "估值XX.XX亿"，"融资2000万美元" → "融资XXXX万美元"
-  const FINANCIAL_ANCHORS = '(?:估值|融资|融资额|融资规模|投资额|投资规模|市值|总市值|营业额|营收|年营收|季度营收|月营收|净利润|毛利润|利润|净利|毛利|EBITDA|ARR|MRR|GMV|交易额|成交额|流水|总流水|月流水|年流水|营业收入|主营收入|总收入|净收入|收入规模|收入体量|融资进展|本轮融资|上轮估值|投后估值|投前估值|Pre-money|Post-money|pre|post)'
-  const FINANCIAL_UNITS = '(?:亿|万亿|千亿|百亿|百万|千万|万|元|美元|港元|欧元|英镑|日元|韩元|million|billion|M|B|K)?'
-  const FINANCIAL_CURRENCY = '(?:人民币|美元|港元|欧元|英镑|RMB|USD|HKD|EUR|GBP)?'
-  text = text.replace(
-    new RegExp(
-      '(' + FINANCIAL_ANCHORS + ')' +
-      '[\\s\\u3000]*' +
-      FINANCIAL_CURRENCY +
-      '[\\s\\u3000]*' +
-      '([\\d,，]+(?:\\.\\d+)?)' +
-      '[\\s\\u3000]*' +
-      '(' + FINANCIAL_UNITS + ')',
-      'gi'
-    ),
-    (m, anchor, num, unit) => {
-      hit(ctx, '金融数字/估值融资')
-      const n = parseFloat(num.replace(/[,，]/g, ''))
-      if (isNaN(n)) return m
-      const scaled = Math.round(n * ctx.amountScale * 100) / 100
-      return anchor + scaled + unit
-    }
-  )
-  // 融资进展描述（如"完成A轮融资，金额X亿"）
-  text = text.replace(
-    /(?:完成|获得|宣布|披露)([A-Za-z\+\u4e00-\u9fa5]{1,4}轮)?(?:融资|投资)[，,\s]*(?:金额|规模|总额)?[为是约达]?\s*([¥￥$€£₩]?\s*[\d,，]+(?:\.\d+)?\s*(?:亿|万亿|千亿|百亿|百万|千万|万|元|美元|港元|欧元|英镑|million|billion|M|B)?)/g,
-    (m, round, amount) => {
-      hit(ctx, '金融数字/融资进展')
-      const masked = amount.replace(/([\d,，]+(?:\.\d+)?)/, (_, num) => {
-        const n = parseFloat(num.replace(/[,，]/g, ''))
-        if (isNaN(n)) return num
-        return String(Math.round(n * ctx.amountScale * 100) / 100)
-      })
-      return m.replace(amount, masked)
-    }
-  )
-
-  // 比率
-  text = text.replace(
-    /(?:增长率|毛利率|净利率|利润率|折扣率|税率|占比|比率|转化率|完成率|达成率|覆盖率|增速|同比|环比|YoY|QoQ|MoM)[：:]\s*([\d.]+%?)/g,
-    (m, num) => { hit(ctx, '比率/增长率'); return m.replace(num, maskRatio(num)) }
-  )
-
   // 合同编号
   text = text.replace(/(?<![A-Za-z0-9])[A-Z]{2,6}-\d{4,8}(?:[-\.]\d{2,8})?(?![A-Za-z0-9])/g,
     m => { hit(ctx, '合同编号'); return maskContract(m) })
 
-  // 订单 / 流水号（需要明确上下文关键词，避免误伤时间戳/文件大小/版本号等）
-  text = text.replace(
-    /(?:订单号?|流水号?|交易号?|单号|order_?(?:id|no)|transaction_?(?:id|no)|trade_?(?:id|no))[：:\s]*([0-9A-Za-z\-]{8,32})/gi,
-    (m, v) => { hit(ctx, '订单/流水号'); return m.replace(v, maskOrder(v)) }
-  )
+  // 订单 / 流水号
+  text = text.replace(/(?<!\d)\d{14,25}(?!\d)/g, m => {
+    if (!/^1[3-9]\d{13}$/.test(m) &&
+        !/^\d{6}(?:19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\d{3}[\dXx]?$/.test(m)) {
+      hit(ctx, '订单/流水号'); return maskOrder(m)
+    }
+    return m
+  })
 
   // 发票号码（需有发票关键词上下文，避免误伤文件名日期戳等纯数字）
   text = text.replace(
@@ -840,7 +793,7 @@ function applyRegexRules(text, ctx) {
   // 工号
   text = text.replace(
     /(?:工号|员工号|员工编号)[：:]\s*([A-Za-z0-9\-]{4,20})/gi,
-    (m, v) => { hit(ctx, '工号'); return m.replace(v, maskEmployeeId(v)) }
+    (_, k, v) => { hit(ctx, '工号'); return k + '：' + maskEmployeeId(v) }
   )
 
   return text
@@ -851,26 +804,21 @@ function applyRegexRules(text, ctx) {
 const QUICK_PATTERNS = [
   // 手机号（含分隔符变体）
   /(?<!\d)(?:\+?86[\s\-]?)?1[3-9]\d[\s\-\.\/]?\d{4}[\s\-\.\/]?\d{4}(?!\d)/,
-  // 身份证（18位，含生日段）
   /\d{6}(?:19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\d{3}[\dXx]/,
-  // 邮箱
   /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/,
-  // 银行卡（16-19位纯数字 或 分组格式）
   /(?<!\d)\d{16,19}(?!\d)/,
+  // 银行卡分组格式
   /\d{4}[\s\-]\d{4}[\s\-]\d{4}[\s\-]\d{4}/,
-  // IP 地址（至少有一段是两位或三位数字，排除 1.2.3.4 这类全单位数版本号）
-  /\b(?:\d{2,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}|\d{1,3}\.\d{2,3}\.\d{1,3}\.\d{1,3}|\d{1,3}\.\d{1,3}\.\d{2,3}\.\d{1,3}|\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{2,3})\b/,
-  // Token/密钥（需要 key=value 格式）
+  /[EeGgDdSsPp]\d{8}/,
+  /[HhMm]\d{10}/,
+  /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/,
   /(?:token|access_?token|api_?key|secret|password|passwd|pwd)\s*[=＝]\s*\S{6,}/i,
-  // URL 敏感参数
   /[?&](?:phone|mobile|email|uid|user_?id|token|id_?card|openid)=/i,
-  // 微信/QQ（需要关键词前缀）
   /(?:微信号?|wxid|QQ号?)[：:\s]\s*[A-Za-z0-9_.\-]{4,}/i,
-  // 合同编号（字母+数字格式，特征明确）
   /[A-Z]{2,6}-\d{4,8}/,
-  // 中文敏感关键词（上下文触发）
-  /(?:姓名|手机|身份证|邮箱|地址|银行卡|发票|合同|订单|流水|供应商|客户|金额|收入|支出|利润|营收|成本|薪资|部门|项目|车牌|护照|公司|用户名|联系人|出生日期|生日|年龄|估值|融资|市值|营业额|GMV|ARR|驾驶证|社保|公积金|统一社会信用代码|信用代码|营业执照)/,
-  /(?:name|username|company|vendor|supplier|customer|address|salary|revenue|profit|department|valuation|funding|passport|social_security|driver_license)\s*[=:]\s*\S/i,
+  /(?<!\d)\d{14,25}(?!\d)/,
+  /(?:姓名|手机|身份证|邮箱|地址|银行卡|税号|发票|合同|订单|流水|账户|供应商|客户|金额|收入|支出|利润|营收|成本|薪资|部门|项目|车牌|护照|公司|用户名|联系人|出生|年龄|估值|融资|市值|营业额|GMV|ARR)/,
+  /(?:name|username|company|vendor|supplier|customer|address|salary|revenue|profit|department|valuation|funding)\s*[=:]\s*\S/i,
   // 金融数字（估值/融资/营收等 + 数字 + 单位）
   /(?:估值|融资|营收|利润|市值|GMV|ARR|MRR)[\s\u3000]*[\d,，]+(?:\.\d+)?[\s\u3000]*(?:亿|万|百万|million|billion|M|B)/i,
 ]

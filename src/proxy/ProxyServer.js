@@ -28,7 +28,6 @@ import { desensitize } from '../core/desensitize.js'
 
 const DEFAULT_PORT           = 47291
 const DEFAULT_BLOCK_ON_FAIL  = true
-const DEFAULT_SKIP_PREFIX    = '[skip-guard]'
 
 // ── 日志工厂 ──────────────────────────────────────────────────────────────────
 
@@ -157,15 +156,13 @@ function forwardRequest(target, reqMethod, reqHeaders, body, res) {
 export class ProxyServer {
   /**
    * @param {object} options
-   * @param {number}  [options.port=47291]              - 监听端口
-   * @param {boolean} [options.blockOnFailure=true]     - 脱敏失败时是否阻断请求
-   * @param {string}  [options.logFile]                 - 日志文件路径
-   * @param {string}  [options.skipPrefix='[skip-guard]'] - 消息开头含此前缀时跳过脱敏
+   * @param {number}  [options.port=47291]           - 监听端口
+   * @param {boolean} [options.blockOnFailure=true]  - 脱敏失败时是否阻断请求
+   * @param {string}  [options.logFile]              - 日志文件路径
    */
   constructor(options = {}) {
     this.port           = options.port           ?? DEFAULT_PORT
     this.blockOnFailure = options.blockOnFailure ?? DEFAULT_BLOCK_ON_FAIL
-    this.skipPrefix     = options.skipPrefix     ?? DEFAULT_SKIP_PREFIX
     this.logFile        = options.logFile        ?? null
     this._server        = null
     this._logger        = options.logFile ? createLogger(options.logFile) : null
@@ -247,14 +244,6 @@ export class ProxyServer {
         return
       }
 
-      // ── skip-guard 检测 ────────────────────────────────────────────────────
-      // 若任意 message 的文本内容以 skipPrefix 开头，则跳过脱敏直接透传
-      if (this._shouldSkip(parsed)) {
-        this._log('info', `检测到 skip-guard 前缀，跳过脱敏直接透传`)
-        forwardRequest(target, req.method, req.headers, rawBody, res)
-        return
-      }
-
       // 递归脱敏整个请求体
       let desensitized, counter
       try {
@@ -288,56 +277,6 @@ export class ProxyServer {
       this._log('error', `请求读取失败: ${err.message}`)
       if (!res.headersSent) { res.writeHead(500); res.end() }
     })
-  }
-
-  /**
-   * 检测请求体中是否包含 skip-guard 前缀，决定是否跳过脱敏
-   *
-   * 检测范围：
-   *   - OpenAI / Anthropic 格式：messages[].content（字符串或 content parts 数组）
-   *   - 旧版 prompt 字段
-   *   - system 字段
-   *
-   * @param {object} body - 已解析的请求体
-   * @returns {boolean}
-   * @private
-   */
-  _shouldSkip(body) {
-    const prefix = this.skipPrefix
-    if (!prefix) return false
-
-    // 辅助：检测单个字符串是否包含 prefix（兼容 gateway 注入元数据导致前缀不在首位的情况）
-    const includesPrefix = (str) =>
-      typeof str === 'string' && str.includes(prefix)
-
-    // 辅助：提取 content 字段的文本（兼容字符串和 content parts 数组）
-    const extractText = (content) => {
-      if (typeof content === 'string') return [content]
-      if (Array.isArray(content)) {
-        return content
-          .filter(p => p?.type === 'text' && typeof p.text === 'string')
-          .map(p => p.text)
-      }
-      return []
-    }
-
-    // 检测 messages 数组（只检测 user 消息，避免 assistant 消息中的历史前缀误触发）
-    if (Array.isArray(body?.messages)) {
-      for (const msg of body.messages) {
-        if (msg?.role !== 'user') continue
-        for (const text of extractText(msg?.content)) {
-          if (includesPrefix(text)) return true
-        }
-      }
-    }
-
-    // 检测旧版 prompt 字段
-    if (includesPrefix(body?.prompt)) return true
-
-    // 检测 system 字段（Anthropic 格式）
-    if (includesPrefix(body?.system)) return true
-
-    return false
   }
 
   /**

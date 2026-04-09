@@ -43,18 +43,9 @@ export class FileDesensitizePlugin extends ToolPlugin {
    * @param {object} params
    * @param {object} config
    * @param {object} logger
-   * @param {object} [context]  - 额外上下文（如 messages、explanation 等）
    * @returns {{ params: object } | undefined}
    */
-  handleToolCall(toolName, params, config, logger, context) {
-    // ── skip-guard 检测 ────────────────────────────────────────────────────
-    // 若 explanation 字段或 params 中任意字符串字段以 skipPrefix 开头，跳过文件脱敏
-    const skipPrefix = config?.skipPrefix ?? '[skip-guard]'
-    if (skipPrefix && this._shouldSkipFile(params, context, skipPrefix)) {
-      this.log(logger, `检测到 skip-guard 前缀，跳过文件脱敏`)
-      return undefined
-    }
-
+  handleToolCall(toolName, params, config, logger) {
     const supportedExts = registry.supportedExtensions
 
     // 收集所有文件路径（兼容三种字段名）
@@ -106,51 +97,6 @@ export class FileDesensitizePlugin extends ToolPlugin {
     if (totalHits > 0) {
       return { params: newParams }
     }
-  }
-
-  /**
-   * 检测是否应该跳过文件脱敏
-   *
-   * 检测范围：
-   *   1. params.explanation 字段（工具调用的说明字段）
-   *   2. context.explanation 字段（框架传入的上下文）
-   *   3. context.messages 中最近一条 user 消息的内容
-   *
-   * @param {object} params
-   * @param {object} context
-   * @param {string} skipPrefix
-   * @returns {boolean}
-   * @private
-   */
-  _shouldSkipFile(params, context, skipPrefix) {
-    const includesPrefix = (str) =>
-      typeof str === 'string' && str.includes(skipPrefix)
-
-    // 1. 检测 params.explanation
-    if (includesPrefix(params?.explanation)) return true
-
-    // 2. 检测 context.explanation
-    if (includesPrefix(context?.explanation)) return true
-
-    // 3. 检测 context.messages 中最近一条 user 消息
-    if (Array.isArray(context?.messages)) {
-      // 从后往前找最近的 user 消息
-      for (let i = context.messages.length - 1; i >= 0; i--) {
-        const msg = context.messages[i]
-        if (msg?.role !== 'user') continue
-        const content = msg.content
-        if (typeof content === 'string') {
-          if (includesPrefix(content)) return true
-        } else if (Array.isArray(content)) {
-          for (const part of content) {
-            if (part?.type === 'text' && includesPrefix(part.text)) return true
-          }
-        }
-        break  // 只检测最近一条 user 消息
-      }
-    }
-
-    return false
   }
 
   /**

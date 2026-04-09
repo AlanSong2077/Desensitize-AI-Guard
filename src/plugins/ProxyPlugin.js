@@ -16,7 +16,7 @@ import { existsSync, readFileSync,
 import { join }                           from 'path'
 import { homedir }                        from 'os'
 import { Plugin }                         from './base/Plugin.js'
-import { syncBaseUrls }                   from '../proxy/UrlRewriter.js'
+import { syncBaseUrls, restoreBaseUrls }  from '../proxy/UrlRewriter.js'
 
 // ── PID 文件路径（与 proxy-process.js 保持一致）────────────────────────────────
 function getPidFile(openclawDir) {
@@ -86,12 +86,15 @@ export class ProxyPlugin extends Plugin {
    * @param {object} options
    * @param {string} options.proxyScriptPath     - proxy.js 子进程脚本路径
    * @param {string} options.openclawJsonPath    - openclaw.json 路径
+   * @param {string} options.sidecarPath         - 原始 URL 备份文件路径
    */
   constructor(options = {}) {
     super()
     this.proxyScriptPath  = options.proxyScriptPath
     this.openclawJsonPath = options.openclawJsonPath
+    this.sidecarPath      = options.sidecarPath
     this._proc            = null
+    this._port            = null
   }
 
   get id()          { return 'data-guard-proxy' }
@@ -107,7 +110,6 @@ export class ProxyPlugin extends Plugin {
   register(api, config, logger) {
     const port           = config.port           ?? 47291
     const blockOnFailure = config.blockOnFailure ?? true
-    const skipPrefix     = config.skipPrefix     ?? '[skip-guard]'
 
     // 验证脚本文件存在
     if (!existsSync(this.proxyScriptPath)) {
@@ -131,15 +133,15 @@ export class ProxyPlugin extends Plugin {
         // 兜底：PID 文件失效时，直接按端口清理残留进程
         killPortProcess(port, logger)
 
-        // 改写 openclaw.json 中的 baseUrl
-        syncBaseUrls(this.openclawJsonPath, port, logger)
-        this.log(logger, `启动代理，端口 ${port}，skip-guard 前缀: "${skipPrefix}"`)
+        // 改写 openclaw.json 中的 baseUrl（同时备份原始 URL 到 sidecar）
+        syncBaseUrls(this.openclawJsonPath, this.sidecarPath, port, logger)
+        this._port = port
+        this.log(logger, `启动代理，端口 ${port}`)
 
         const env = {
           ...process.env,
           DATA_GUARD_PORT:             String(port),
           DATA_GUARD_BLOCK_ON_FAILURE: String(blockOnFailure),
-          DATA_GUARD_SKIP_PREFIX:      skipPrefix,
         }
 
         this._proc = spawn(process.execPath, [this.proxyScriptPath], {
@@ -169,6 +171,8 @@ export class ProxyPlugin extends Plugin {
         }
         // 兜底：如果子进程已成孤儿，通过 PID 文件补杀
         killStalePid(pidFile, logger)
+        // 还原 openclaw.json 中的 baseUrl
+        restoreBaseUrls(this.openclawJsonPath, this.sidecarPath, this._port ?? port, logger)
       },
     })
 
