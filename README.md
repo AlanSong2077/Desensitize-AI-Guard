@@ -118,60 +118,6 @@ To send a message **without** Layer 1 text desensitization, prefix it with `[ski
 
 > ⚠️ Layers 2, 3, and 4 (file / Python / Shell exec) are **unaffected** by this prefix.
 
----
-
-## 🏗️ Project Structure
-
-```
-data-guard/
-│
-├── index.js                          # Plugin entry — wires all four layers
-├── openclaw.plugin.json              # Plugin manifest
-├── package.json
-│
-└── src/
-    ├── core/
-    │   └── desensitize.js            # Desensitization engine (30+ rules, zero deps)
-    │                                 # Two-pass scan strategy (raw + normalized)
-    │
-    ├── input/
-    │   └── FileReader.js             # Reads file → parses → desensitizes → temp file
-    │
-    ├── output/
-    │   └── TempFileManager.js        # Temp file lifecycle management
-    │
-    ├── migrate/
-    │   └── cleanLegacy.js            # Removes hooks from older plugin versions
-    │
-    ├── proxy/
-    │   ├── ProxyServer.js            # HTTP reverse proxy server
-    │   ├── UrlRewriter.js            # Rewrites provider baseUrls in openclaw.json
-    │   └── proxy-process.js          # Proxy child process entry point
-    │
-    └── plugins/
-        ├── base/
-        │   ├── Plugin.js              # Abstract base class for all plugins
-        │   └── ToolPlugin.js          # Base class for tool-hook plugins
-        │
-        ├── ProxyPlugin.js             # L1: HTTP proxy plugin (registerService)
-        │
-        ├── tool/
-        │   ├── FileDesensitizePlugin.js  # L2: read/read_file tool hook
-        │   └── formats/
-        │       ├── FileFormat.js         # Abstract format + registry
-        │       ├── CsvFormat.js
-        │       ├── XlsxFormat.js
-        │       ├── XlsFormat.js
-        │       ├── DocxFormat.js         # DOCX / DOTX (ZIP + XML, zero deps)
-        │       ├── PptxFormat.js         # PPTX / POTX (ZIP + XML, zero deps)
-        │       ├── PdfFormat.js          # PDF (content stream extraction, zero deps)
-        │       └── index.js
-        │
-        └── exec/
-            ├── execUtils.js              # Shared path-extraction + desensitize utils
-            ├── PythonExecPlugin.js       # L3: Python exec hook
-            └── ShellExecPlugin.js        # L4: Shell/Node/Ruby/R exec hook (NEW v2.2.1)
-```
 
 ---
 
@@ -220,7 +166,7 @@ Ensure `shellGuard` is not set to `false` in your plugin config. The Shell exec 
 
 ## 🤝 Contributing
 
-Pull requests are welcome! Please open an issue first to discuss significant changes.
+- **keyuzhang838-dotcom** — contributed the Hook Plugins module
 
 ---
 
@@ -230,12 +176,6 @@ Pull requests are welcome! Please open an issue first to discuss significant cha
 |:--|:--|
 | **Alan Song** | Lead Developer |
 | **Roxy Li** | Contributor |
-
----
-
-## 🙏 Acknowledgements
-
-- **keyuzhang838-dotcom** — contributed the Hook Plugins module
 
 ---
 
