@@ -80,36 +80,6 @@ When using **OpenClaw** 🦞 to invoke external LLMs (GPT-4, Claude, DeepSeek, e
 
 **30+ 类敏感数据**自动识别并脱敏 | **30+ categories** of sensitive data are recognized and masked:
 
-| 数据类型 Data Type | 脱敏策略 Mask Strategy |
-|:-------------------|:-----------------------|
-| 📱 手机号（中国 11 位 + 国际）Phone number | `138****5678` |
-| 🆔 中国身份证号（18/15 位）Chinese ID card | `110***********1234` |
-| 💳 银行卡号（Luhn 校验，16-19 位）Bank card | `6222**********0123` |
-| 📧 电子邮箱 Email address | `u***r@example.com` |
-| 🛂 护照 / 港澳通行证 / 台湾通行证 Passport / HK-Macao / TW permit | `E****678` |
-| 🌐 IPv4 / IPv6 | `192.168.*.*` |
-| 🧾 统一社会信用代码 Unified Social Credit Code | `91**************2G` |
-| 🧾 发票号码 Invoice number | `FP***********` |
-| 🔢 订单号 / 交易流水号 Order / transaction ID | `单号_92b6fedb` |
-| 🏛️ 社保 / 公积金账号 Social security / housing fund | `社保_a1b2c3` |
-| 👤 中文姓名 Chinese name | `用户_a3f2` |
-| 🏠 地址信息 Address | `北京市朝阳区***` |
-| 🔐 Token / API 密钥 / 密码 Token / API key / password | `sk-****` |
-| 💬 微信号 / QQ 号 WeChat / QQ ID | `wx_****` |
-| 🚗 车牌号 Vehicle license plate | `京A·***5` |
-| 🏢 公司 / 基金 / 机构名称 Company / fund / institution name | `公司_f1e2` |
-| 🤝 供应商 / 客户 / 合作伙伴 Vendor / customer / partner | `供应商_A` |
-| 🏗️ 部门 / 团队 Department / team | `部门_B` |
-| 📅 出生日期 / 年龄 Birth date / age | `****-**-**` / `**岁` |
-| 🪪 驾驶证号 Driver's license | `**xxxx**` |
-| 🔢 工号 / 合同编号 Employee ID / contract no. | `工号_3a4b5c` |
-
-### 列级精准脱敏（CSV / Excel）| Column-Level Precision
-
-读取 CSV 或 Excel 时，Data Guard 通过**表头名称**识别敏感列，针对性脱敏 — 而非全局正则替换。支持智能识别变体表头如 `联系方式2`、`备用手机号`、`操作员` 等。
-
-When reading CSV or Excel files, Data Guard identifies sensitive columns by **header name** and applies the appropriate mask — not a blanket regex. Context-aware inference handles variant column names like `联系方式2`, `备用手机号`, `操作员`.
-
 ---
 
 ## 🚀 快速开始 | Quick Start
