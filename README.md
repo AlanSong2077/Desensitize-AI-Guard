@@ -254,7 +254,8 @@ MIT License
   <img src="https://img.shields.io/badge/OpenClaw-Plugin-blueviolet?style=for-the-badge&logo=robot" />
   <img src="https://img.shields.io/badge/Node.js-Pure_JS-green?style=for-the-badge&logo=nodedotjs" />
   <img src="https://img.shields.io/badge/Zero_Dependencies-green?style=for-the-badge" />
-  <img src="https://img.shields.io/badge/Four_Layers-v2.2.1-purple?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/Four_Layers-v2.3.0-purple?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/AES_256_GCM-Encryption-blue?style=for-the-badge" />
 </p>
 
 <p align="center">

@@ -1,6 +1,6 @@
 {
   "name": "data-guard",
-  "version": "2.2.1",
+  "version": "2.3.0",
   "description": "Data Guard — 四层数据脱敏插件（HTTP 代理层 + 文件工具层 + Python exec 层 + Shell exec 层）。安装时自动清除旧版 hook，防止多版本冲突。纯 Node.js 引擎（零外部依赖），30+ 类脱敏 + CSV/XLSX/XLS 列名精准脱敏 + Python/Shell exec 拦截。",
   "type": "module",
   "main": "index.js",
