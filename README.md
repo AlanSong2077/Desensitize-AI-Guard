@@ -274,10 +274,10 @@ The proxy runs as a child process with two independent safeguards:
 
 | | Name | Role |
 |:---:|:-----|:-----|
-| 🧑‍💻 | **Alan Song** | Lead Developer · 主要开发者 |
-| 👩‍💻 | **Roxy Li** | Contributor · 贡献者 |
-| 🧑‍💻 | **keyuzhang838-dotcom** | Hook Plugins Module · 钩子插件模块 |
-| 👩‍💻 | **Ayang77777** | Contributor · 贡献者 |
+| 🧑‍💻 | **Alan Song** | Developer |
+| 👩‍💻 | **Roxy Li** | Developer |
+| 🧑‍💻 | **keyuzhang838-dotcom** | Developer |
+| 👩‍💻 | **Ayang77777** | Developer |
 
 </div>
 
