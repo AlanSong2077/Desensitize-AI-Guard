@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="300" viewBox="0 0 1280 300" role="img" aria-label="Data Guard: Share useful context. Keep sensitive details under control.">
+<rect width="1280" height="300" rx="20" fill="#103d3d"/>
+<path d="M930 0V300M956 0V300" stroke="#235451" stroke-width="1"/>
+<g font-family="Arial, Helvetica, sans-serif"><text x="55" y="112" fill="#ffffff" font-size="68" font-weight="700">Data Guard</text><text x="59" y="168" fill="#d8eeea" font-size="28">Share useful context.</text><text x="59" y="207" fill="#d8eeea" font-size="28">Keep sensitive details under control.</text><text x="59" y="262" fill="#92beb2" font-size="17">A privacy layer for your OpenClaw workflow</text></g>
+<path d="M1102 57L1190 88V150C1190 186 1164 213 1102 239C1040 213 1014 186 1014 150V88Z" fill="#184b46" stroke="#91c5b6" stroke-width="3"/>
+<rect x="1062" y="126" width="80" height="62" rx="10" fill="#e6be70"/>
+<path d="M1080 125V112A22 22 0 0 1 1124 112V125" fill="none" stroke="#e6be70" stroke-width="7"/>
+<circle cx="1102" cy="151" r="6" fill="#103d3d"/><path d="M1102 157V168" stroke="#103d3d" stroke-width="5"/>
+</svg>
